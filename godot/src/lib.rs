@@ -173,7 +173,7 @@ pub mod init {
 /// Register/export Rust symbols to Godot: classes, methods, enums...
 pub mod register {
     pub use godot_core::registry::property;
-    pub use godot_macros::{godot_api, dyn_trait, Export, GodotClass, GodotConvert, Var};
+    pub use godot_macros::{dyn_trait, godot_api, Export, GodotClass, GodotConvert, Var};
 
     /// Re-exports used by proc-macro API.
     #[doc(hidden)]
