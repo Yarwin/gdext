@@ -6,7 +6,8 @@
  */
 
 use crate::meta::{FromGodot, GodotConvert, GodotType, PropertyHintInfo};
-use crate::registry::property::{DirectExport, Export, Var};
+use crate::obj::bounds;
+use crate::registry::property::{Export, Var};
 
 /// Exported property that must be initialized in the editor (or associated code) before use.
 ///
@@ -40,7 +41,7 @@ use crate::registry::property::{DirectExport, Export, Var};
 /// impl INode for MyClass {
 ///     fn ready(&mut self) {
 ///         // Will always be valid and **must** be set via editor.
-///         // Additional check is being run before ready
+///         // Additional check is being run before ready()
 ///         // to ensure that given value can't be null.
 ///         let some_variant = self.editor_property.get_meta("SomeName");
 ///     }
@@ -128,7 +129,7 @@ use crate::registry::property::{DirectExport, Export, Var};
 ///     // Uninitialized value will be represented by `42` in the editor.
 ///     // Will cause panic if not set via the editor or code before use.
 ///     #[export]
-///     #[init(uninit = 42)]
+///     #[init(invalid = 42)]
 ///     some_primitive: OnEditor<i64>,
 /// }
 ///
@@ -161,9 +162,10 @@ enum OnEditorState<T> {
 }
 
 impl<T: GodotConvert + Var + FromGodot + PartialEq> OnEditor<T> {
-    /// Initializes `OnEditor<T>` with given value.
+    /// Initializes invalid `OnEditor<T>` with given value.
     ///
-    /// Panics if `init()` was called before.
+    /// # Panics
+    /// If `init()` was called before.
     pub fn init(&mut self, val: T) {
         match self.inner {
             OnEditorState::Null | OnEditorState::Uninitialized(_) => {
@@ -172,15 +174,17 @@ impl<T: GodotConvert + Var + FromGodot + PartialEq> OnEditor<T> {
                 };
             }
             OnEditorState::Initialized(_) => {
-                panic!("godot-rust: Given OnEditor value has been already initialized; did you call init() more than once?")
+                panic!("Given OnEditor value has been already initialized; did you call init() more than once?")
             }
         }
     }
 
-    /// Creates new uninitialized `OnEditor<T>` with value which will be used to represent invalid, uninitialized property in the editor.
-    pub fn uninit(val: T) -> Self
+    /// Creates new `OnEditor<T>` with a value that is considered invalid.
+    ///
+    /// If this value is not changed in the editor, accessing it from Rust will cause a panic.
+    pub fn new_invalid(val: T) -> Self
     where
-        T: DirectExport,
+        T: GodotType<BuiltinExportable = bounds::Yes>,
     {
         OnEditor {
             inner: OnEditorState::Uninitialized(val),
@@ -190,7 +194,10 @@ impl<T: GodotConvert + Var + FromGodot + PartialEq> OnEditor<T> {
     /// Creates new uninitialized `OnEditor<T>` value for nullable GodotTypes.
     ///
     /// Not a part of public API – available only via `Default` implementation on `OnEditor<Gd<T>>` and `OnEditor<DynGd<D, T>>`.
-    pub(crate) fn null() -> Self {
+    pub(crate) fn gd_invalid() -> Self
+    where
+        T: GodotConvert<Via: GodotType<BuiltinExportable = bounds::No>>,
+    {
         OnEditor {
             inner: OnEditorState::Null,
         }
@@ -214,7 +221,10 @@ impl<T: GodotConvert + Var + FromGodot + PartialEq> OnEditor<T> {
         }
     }
 
-    /// `Var::set_property` implementation that works both for nullable and non-nullable types.
+    /// [`Var::set_property`] implementation that works both for nullable and non-nullable types.
+    ///
+    /// All the state transitions are valid, since it is being run only in the editor.
+    /// See also [`Option::set_property()`].
     pub(crate) fn set_property_inner(&mut self, value: Option<T::Via>)
     where
         T::Via: PartialEq,
@@ -242,7 +252,7 @@ impl<T> std::ops::Deref for OnEditor<T> {
     fn deref(&self) -> &Self::Target {
         match &self.inner {
             OnEditorState::Null | OnEditorState::Uninitialized(_) => {
-                panic!("godot-rust: OnEditor field hasn't been initialized.")
+                panic!("OnEditor field hasn't been initialized.")
             }
             OnEditorState::Initialized(v) => v,
         }
@@ -253,7 +263,7 @@ impl<T> std::ops::DerefMut for OnEditor<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match &mut self.inner {
             OnEditorState::Null | OnEditorState::Uninitialized(_) => {
-                panic!("godot-rust: OnEditor field hasn't been initialized.")
+                panic!("OnEditor field hasn't been initialized.")
             }
             OnEditorState::Initialized(v) => v,
         }
@@ -262,7 +272,7 @@ impl<T> std::ops::DerefMut for OnEditor<T> {
 
 impl<T> GodotConvert for OnEditor<T>
 where
-    T: GodotConvert<Via = T> + GodotType + DirectExport,
+    T: GodotConvert<Via = T> + GodotType<BuiltinExportable = bounds::Yes>,
 {
     type Via = T::Via;
 }
@@ -270,7 +280,11 @@ where
 impl<T> Var for OnEditor<T>
 where
     OnEditor<T>: GodotConvert<Via = T>,
-    T: GodotConvert<Via = T> + DirectExport + Var + FromGodot + PartialEq,
+    T: GodotConvert<Via = T>
+        + GodotType<BuiltinExportable = bounds::Yes>
+        + Var
+        + FromGodot
+        + PartialEq,
 {
     fn get_property(&self) -> Self::Via {
         // Will never fail – `PrimitiveGodotType` can not be represented by the `OnEditorState::Null`.
@@ -285,7 +299,7 @@ where
 impl<T> Export for OnEditor<T>
 where
     OnEditor<T>: Var,
-    T: GodotConvert<Via = T> + DirectExport + Export,
+    T: GodotConvert<Via = T> + GodotType<BuiltinExportable = bounds::Yes> + Export,
 {
     fn export_hint() -> PropertyHintInfo {
         T::export_hint()

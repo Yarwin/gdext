@@ -15,6 +15,7 @@ use crate::registry::method::MethodParamOrReturnInfo;
 use godot_ffi as sys;
 
 // Re-export sys traits in this module, so all are in one place.
+use crate::obj::bounds::Exportable;
 use crate::registry::property::builtin_type_string;
 use crate::{builtin, meta};
 pub use sys::{GodotFfi, GodotNullableFfi};
@@ -50,6 +51,12 @@ pub trait GodotType: GodotConvert<Via = Self> + sealed::Sealed + Sized + 'static
     type ToFfi<'f>: GodotFfiVariant
     where
         Self: 'f;
+
+    /// Yes if given GodotType is not nullable, i.e. - is not a GodotClass.
+    ///
+    /// Enables direct `#[export]` for those types.
+    #[doc(hidden)]
+    type BuiltinExportable: Exportable;
 
     /// Returns the FFI representation of this type, used for argument passing.
     ///

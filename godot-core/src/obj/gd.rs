@@ -750,6 +750,8 @@ impl<T: GodotClass> GodotType for Gd<T> {
     where
         Self: 'f;
 
+    type BuiltinExportable = bounds::No;
+
     #[doc(hidden)]
     fn to_ffi(&self) -> Self::ToFfi<'_> {
         RefArg::new(&self.raw)
@@ -917,10 +919,9 @@ where
     }
 }
 
-#[allow(clippy::derivable_impls)]
 impl<T: GodotClass> Default for OnEditor<Gd<T>> {
     fn default() -> Self {
-        OnEditor::null()
+        OnEditor::gd_invalid()
     }
 }
 

@@ -553,6 +553,8 @@ impl<T: GodotClass> GodotType for RawGd<T> {
     where
         Self: 'f;
 
+    type BuiltinExportable = bounds::No;
+
     fn to_ffi(&self) -> Self::ToFfi<'_> {
         RefArg::new(self)
     }

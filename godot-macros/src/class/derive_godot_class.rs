@@ -254,7 +254,7 @@ fn make_godot_init_impl(class_name: &Ident, fields: &Fields) -> TokenStream {
 }
 
 fn make_onready_init(all_fields: &[Field]) -> TokenStream {
-    let mut onready_fields = all_fields
+    let onready_fields = all_fields
         .iter()
         .filter(|&field| field.is_onready)
         .map(|field| {
@@ -262,13 +262,13 @@ fn make_onready_init(all_fields: &[Field]) -> TokenStream {
             quote! {
                 ::godot::private::auto_init(&mut self.#field, &base);
             }
-        });
+        })
+        .collect::<Vec<_>>();
 
-    if let Some(first) = onready_fields.next() {
+    if !onready_fields.is_empty() {
         quote! {
             {
                 let base = <Self as godot::obj::WithBaseField>::to_gd(self).upcast();
-                #first
                 #( #onready_fields )*
             }
         }
@@ -279,9 +279,11 @@ fn make_onready_init(all_fields: &[Field]) -> TokenStream {
 
 fn make_oneditor_panic_inits(class_name: &Ident, all_fields: &[Field]) -> TokenStream {
     // Despite its name OnEditor shouldn't panic in the editor for tool classes.
-    let editor_check = quote! { ::godot::classes::Engine::singleton().is_editor_hint() };
+    let is_in_editor = quote! { ::godot::classes::Engine::singleton().is_editor_hint() };
 
-    // Inform the user which fields haven't been set, instead of panicking on the very first one. Useful for debugging.
+    let are_all_oneditor_fields_valid = quote! { are_all_oneditor_fields_valid };
+
+    // Informs the user which fields haven't been set, instead of panicking on the very first one. Useful for debugging.
     let on_editor_fields_checks = all_fields
         .iter()
         .filter(|&field| field.is_oneditor)
@@ -289,11 +291,12 @@ fn make_oneditor_panic_inits(class_name: &Ident, all_fields: &[Field]) -> TokenS
             let field = &field.name;
             let warning_message =
                 format! { "godot-rust: OnEditor field {field} hasn't been initialized."};
+
             quote! {
-            if this.#field.is_invalid() {
-                ::godot::global::godot_warn!(#warning_message);
-                is_oneditor_properly_initialized = false;
-            }
+                if this.#field.is_invalid() {
+                    ::godot::global::godot_warn!(#warning_message);
+                    #are_all_oneditor_fields_valid = false;
+                }
             }
         })
         .collect::<Vec<_>>();
@@ -301,18 +304,20 @@ fn make_oneditor_panic_inits(class_name: &Ident, all_fields: &[Field]) -> TokenS
     if !on_editor_fields_checks.is_empty() {
         quote! {
             fn __are_oneditor_fields_initalized(this: &#class_name) -> bool {
-                if #editor_check {
+                // Early return for `#[class(tool)]`.
+                if #is_in_editor {
                     return true;
                 }
 
-                let mut is_oneditor_properly_initialized: bool = true;
+                let mut #are_all_oneditor_fields_valid: bool = true;
+
                 #( #on_editor_fields_checks )*
 
-                is_oneditor_properly_initialized
+                #are_all_oneditor_fields_valid
             }
 
             if !__are_oneditor_fields_initalized(&self) {
-                panic!("godot-rust: OnEditor fields must be properly initialized before ready.")
+                panic!("OnEditor fields must be properly initialized before ready.")
             }
         }
     } else {
@@ -594,14 +599,14 @@ fn parse_fields(
                 });
             }
 
-            // #[init(uninit = val)]
-            if let Some(invalid_representation) = parser.handle_expr("uninit")? {
+            // #[init(invalid = val)]
+            if let Some(invalid_representation) = parser.handle_expr("invalid")? {
                 let mut is_well_formed = true;
                 if !field.is_oneditor {
                     is_well_formed = false;
                     errors.push(error!(
                         parser.span(),
-                        "The key `uninit` in attribute #[init] requires field of type `OnEditor<T>`"
+                        "The key `invalid` in attribute #[init] requires field of type `OnEditor<T>`"
                     ));
                 }
 
@@ -609,12 +614,12 @@ fn parse_fields(
                     is_well_formed = false;
                     errors.push(error!(
 				        parser.span(),
-				        "The key `uninit` in attribute #[init] is mutually exclusive with the keys `default` and `val`"
+				        "The key `invalid` in attribute #[init] is mutually exclusive with the keys `default` and `val`"
 			        ));
                 }
 
                 let default_val = if is_well_formed {
-                    quote! { OnEditor::uninit(#invalid_representation) }
+                    quote! { OnEditor::new_invalid( #invalid_representation ) }
                 } else {
                     quote! { todo!() }
                 };

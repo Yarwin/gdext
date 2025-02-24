@@ -511,7 +511,7 @@ impl InstanceIdProvider for foreign::NodeHealth {
 
 #[derive(GodotClass)]
 #[class(init)]
-struct RefcHasDynGdVar {
+struct RefcDynGdVarDeclarer {
     #[var]
     first: Option<DynGd<Object, dyn Health>>,
     #[var]
@@ -521,7 +521,7 @@ struct RefcHasDynGdVar {
 // Implementation created only to register the DynGd `HealthWithAssociatedType<HealthType=f32>` trait.
 // Pointless trait, but tests proper conversion.
 #[godot_dyn]
-impl InstanceIdProvider for RefcHasDynGdVar {
+impl InstanceIdProvider for RefcDynGdVarDeclarer {
     type Id = f32;
     fn get_id_dynamic(&self) -> Self::Id {
         42.0

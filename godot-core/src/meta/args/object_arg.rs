@@ -336,6 +336,7 @@ impl<T: GodotClass> FromGodot for ObjectArg<T> {
 impl<T: GodotClass> GodotType for ObjectArg<T> {
     type Ffi = Self;
     type ToFfi<'f> = Self; // TODO: maybe ObjectArg becomes redundant with RefArg?
+    type BuiltinExportable = bounds::No;
 
     fn to_ffi(&self) -> Self::ToFfi<'_> {
         (*self).clone()

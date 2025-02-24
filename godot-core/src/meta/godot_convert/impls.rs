@@ -11,6 +11,7 @@ use crate::meta::{
     ArrayElement, ClassName, FromGodot, GodotConvert, GodotNullableFfi, GodotType,
     PropertyHintInfo, PropertyInfo, ToGodot,
 };
+use crate::obj::bounds;
 use crate::registry::method::MethodParamOrReturnInfo;
 use godot_ffi as sys;
 
@@ -30,6 +31,8 @@ where
     type Ffi = T::Ffi;
 
     type ToFfi<'f> = T::ToFfi<'f>;
+
+    type BuiltinExportable = bounds::Yes;
 
     fn to_ffi(&self) -> Self::ToFfi<'_> {
         GodotNullableFfi::flatten_option(self.as_ref().map(|t| t.to_ffi()))
@@ -165,6 +168,7 @@ macro_rules! impl_godot_scalar {
         impl GodotType for $T {
             type Ffi = $Via;
             type ToFfi<'f> = $Via;
+            type BuiltinExportable = bounds::Yes;
 
             fn to_ffi(&self) -> Self::ToFfi<'_> {
                 (*self).into()
@@ -199,6 +203,7 @@ macro_rules! impl_godot_scalar {
         impl GodotType for $T {
             type Ffi = $Via;
             type ToFfi<'f> = $Via;
+            type BuiltinExportable = bounds::Yes;
 
             fn to_ffi(&self) -> Self::ToFfi<'_> {
                 *self as $Via
@@ -303,6 +308,7 @@ impl_godot_scalar!(
 impl GodotType for u64 {
     type Ffi = i64;
     type ToFfi<'f> = i64;
+    type BuiltinExportable = bounds::Yes;
 
     fn to_ffi(&self) -> Self::ToFfi<'_> {
         *self as i64

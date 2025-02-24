@@ -10,7 +10,7 @@ use crate::meta::error::ConvertError;
 use crate::meta::{ClassName, FromGodot, GodotConvert, PropertyHintInfo, ToGodot};
 use crate::obj::guards::DynGdRef;
 use crate::obj::{bounds, AsDyn, Bounds, DynGdMut, Gd, GodotClass, Inherits, OnEditor};
-use crate::registry::class::{get_dyn_property_hint_string, try_dynify_object};
+use crate::registry::class::try_dynify_object;
 use crate::registry::property::{Export, Var};
 use crate::{meta, sys};
 use std::{fmt, ops};
@@ -495,14 +495,13 @@ where
     }
 }
 
-#[allow(clippy::derivable_impls)]
 impl<T, D> Default for OnEditor<DynGd<T, D>>
 where
     T: GodotClass,
     D: ?Sized + 'static,
 {
     fn default() -> Self {
-        OnEditor::null()
+        OnEditor::gd_invalid()
     }
 }
 
@@ -512,12 +511,10 @@ where
     D: ?Sized + 'static,
 {
     fn export_hint() -> PropertyHintInfo {
-        PropertyHintInfo {
-            hint_string: get_dyn_property_hint_string::<D>(),
-            ..PropertyHintInfo::export_gd::<T>()
-        }
+        PropertyHintInfo::export_dyn_gd::<T, D>()
     }
 
+    #[doc(hidden)]
     fn as_node_class() -> Option<ClassName> {
         PropertyHintInfo::object_as_node_class::<T>()
     }
@@ -552,11 +549,10 @@ where
     D: ?Sized + 'static,
 {
     fn export_hint() -> PropertyHintInfo {
-        PropertyHintInfo {
-            hint_string: get_dyn_property_hint_string::<D>(),
-            ..PropertyHintInfo::export_gd::<T>()
-        }
+        PropertyHintInfo::export_dyn_gd::<T, D>()
     }
+
+    #[doc(hidden)]
     fn as_node_class() -> Option<ClassName> {
         PropertyHintInfo::object_as_node_class::<T>()
     }

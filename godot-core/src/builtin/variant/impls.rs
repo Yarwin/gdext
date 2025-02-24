@@ -12,6 +12,7 @@ use crate::meta::error::{ConvertError, FromVariantError};
 use crate::meta::{
     ArrayElement, GodotFfiVariant, GodotType, PropertyHintInfo, PropertyInfo, RefArg,
 };
+use crate::obj::bounds;
 use godot_ffi as sys;
 // For godot-cpp, see https://github.com/godotengine/godot-cpp/blob/master/include/godot_cpp/core/type_info.hpp.
 
@@ -68,6 +69,9 @@ macro_rules! impl_ffi_variant {
 
         impl GodotType for $T {
             type Ffi = Self;
+
+            type BuiltinExportable = bounds::Yes;
+
             impl_ffi_variant!(@assoc_to_ffi $by_ref_or_val);
 
             fn into_ffi(self) -> Self::Ffi {
@@ -198,6 +202,7 @@ impl GodotFfiVariant for () {
 impl GodotType for () {
     type Ffi = ();
     type ToFfi<'a> = ();
+    type BuiltinExportable = bounds::Yes;
 
     fn to_ffi(&self) -> Self::ToFfi<'_> {}
 
@@ -225,6 +230,7 @@ impl GodotFfiVariant for Variant {
 impl GodotType for Variant {
     type Ffi = Variant;
     type ToFfi<'a> = RefArg<'a, Variant>;
+    type BuiltinExportable = bounds::Yes;
 
     fn to_ffi(&self) -> Self::ToFfi<'_> {
         RefArg::new(self)
