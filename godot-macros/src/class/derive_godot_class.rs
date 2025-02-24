@@ -338,13 +338,7 @@ fn make_user_class_impl(
 
     let onready_inits = make_onready_init(all_fields);
 
-    // Perform before-ready oneditor check only in debug mode.
-    // TODO - make sure if it shouldn't be hidden with another feature flag (for libraries running in editor, such as plugins).
-    #[cfg(debug_assertions)]
     let oneditor_panic_inits = make_oneditor_panic_inits(class_name, all_fields);
-
-    #[cfg(not(debug_assertions))]
-    let oneditor_panic_inits = TokenStream::new();
 
     let run_before_ready = !onready_inits.is_empty() || !oneditor_panic_inits.is_empty();
 
