@@ -18,9 +18,8 @@ pub fn document_struct(
     fields: &[Field],
 ) -> TokenStream {
     let base_escaped = xml_escape(base);
-    let desc_escaped = attribute_docs_to_bbcode(description)
-        .map(xml_escape)
-        .unwrap_or_default();
+    let (desc_escaped, deprecated, experimental) =
+        attribute_docs_to_bbcode(description).unwrap_or_default();
 
     let members = fields
         .iter()
@@ -32,6 +31,8 @@ pub fn document_struct(
             ::godot::docs::StructDocs {
                 base: #base_escaped,
                 description: #desc_escaped,
+                experimental: #experimental,
+                deprecated: #deprecated,
                 members: #members,
             }
     }
@@ -135,13 +136,66 @@ fn xml_escape(value: String) -> String {
     result
 }
 
-/// Calls [`extract_docs_from_attributes`] and converts the result to BBCode for Godot's consumption.
-fn attribute_docs_to_bbcode(doc: &[venial::Attribute]) -> Option<String> {
-    let doc = extract_docs_from_attributes(doc)
-        .collect::<Vec<String>>()
-        .join("\n");
+/// Returns user docs with its `@deprecated` and `@experimental` attributes extracted.
+fn docs_with_attributes(doc: &[venial::Attribute]) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let (mut docs, mut deprecated, mut experimental): (Vec<String>, Vec<String>, Vec<String>) =
+        (Vec::new(), Vec::new(), Vec::new());
 
-    (!doc.is_empty()).then(|| markdown_converter::to_bbcode(&doc))
+    let docs_ptr = &docs as *const _;
+    let mut current_bucket: &mut Vec<String> = &mut docs;
+
+    for mut line in extract_docs_from_attributes(doc) {
+        // Following lines are being part of given attribute as long as they are not followed by the newline.
+        if !std::ptr::eq(current_bucket, docs_ptr) && line.is_empty() {
+            current_bucket = &mut docs;
+            // Avoid doubling newlines.
+            continue;
+        }
+
+        // Checks if line starts with given attribute tag.
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("@deprecated") {
+            current_bucket = &mut deprecated;
+            line = trimmed.trim_start_matches("@deprecated").to_string();
+        } else if trimmed.starts_with("@experimental") {
+            current_bucket = &mut experimental;
+            line = trimmed.trim_start_matches("@experimental").to_string();
+        }
+
+        current_bucket.push(line);
+    }
+
+    (docs, deprecated, experimental)
+}
+
+/// Converts attribute docs to form suitable for Godot's consumption.
+///
+/// All doc pieces are being converted to BBCode and xml escaped.
+/// Returns user docs with `@deprecated` and `@experimental` attributes or None if no docs are present.
+fn attribute_docs_to_bbcode(doc: &[venial::Attribute]) -> Option<(String, String, String)> {
+    let (docs, deprecated, experimental) = docs_with_attributes(doc);
+
+    if docs.is_empty() && deprecated.is_empty() && experimental.is_empty() {
+        return None;
+    }
+
+    let converter: fn(Vec<String>) -> Option<String> =
+        |piece| (!piece.is_empty()).then(|| markdown_converter::to_bbcode(&piece.join("\n")));
+
+    let to_attribute: fn(String, &str) -> String =
+        |description, attribute| format!("{attribute}=\"{description}\"");
+
+    Some((
+        converter(docs).map(xml_escape).unwrap_or_default(),
+        converter(deprecated)
+            .map(xml_escape)
+            .map(|s| to_attribute(s, "deprecated"))
+            .unwrap_or_default(),
+        converter(experimental)
+            .map(xml_escape)
+            .map(|s| to_attribute(s, "experimental"))
+            .unwrap_or_default(),
+    ))
 }
 
 fn format_venial_params_xml(params: &venial::Punctuated<venial::FnParam>) -> String {
@@ -159,12 +213,11 @@ fn format_signal_xml(signal: &SignalDefinition) -> Option<String> {
 
     let params = format_venial_params_xml(&signal.fn_signature.params);
 
-    let desc = attribute_docs_to_bbcode(&signal.external_attributes)?;
-    let desc = xml_escape(desc);
+    let (desc, deprecated, experimental) = attribute_docs_to_bbcode(&signal.external_attributes)?;
 
     Some(format!(
         r#"
-<signal name="{name}">
+<signal name="{name}" {deprecated} {experimental}>
   {params}
   <description>
   {desc}
@@ -175,7 +228,8 @@ fn format_signal_xml(signal: &SignalDefinition) -> Option<String> {
 }
 
 fn format_constant_xml(constant: &venial::Constant) -> Option<String> {
-    let docs = attribute_docs_to_bbcode(&constant.attributes)?;
+    let (docs, deprecated, experimental) = attribute_docs_to_bbcode(&constant.attributes)?;
+
     let name = constant.name.to_string();
     let value = constant
         .initializer
@@ -184,25 +238,23 @@ fn format_constant_xml(constant: &venial::Constant) -> Option<String> {
         .unwrap_or_else(|| "null".to_string());
 
     Some(format!(
-        r#"<constant name="{name}" value="{value}">{docs}</constant>"#,
+        r#"<constant name="{name}" value="{value}" {deprecated} {experimental}>{docs}</constant>"#,
         name = xml_escape(name),
         value = xml_escape(value),
-        docs = xml_escape(docs),
     ))
 }
 
 pub fn format_member_xml(member: &Field) -> Option<String> {
-    let docs = attribute_docs_to_bbcode(&member.attributes)?;
+    let (docs, deprecated, experimental) = attribute_docs_to_bbcode(&member.attributes)?;
     let name = &member.name;
     let ty = member.ty.to_token_stream().to_string();
     let default = member.default_val.to_token_stream().to_string();
 
     Some(format!(
-        r#"<member name="{name}" type="{ty}" default="{default}">{docs}</member>"#,
+        r#"<member name="{name}" type="{ty}" default="{default}" {deprecated} {experimental}>{docs}</member>"#,
         name = xml_escape(name.to_string()),
         ty = xml_escape(ty),
         default = xml_escape(default),
-        docs = xml_escape(docs),
     ))
 }
 
@@ -225,8 +277,8 @@ fn format_params_xml<'a, 'b>(
 }
 
 fn format_virtual_method_xml(method: venial::Function) -> Option<String> {
-    let desc = attribute_docs_to_bbcode(&method.attributes)?;
-    let desc = xml_escape(desc);
+    // Note: Virtual methods can't be deprecated.
+    let (desc, _, _) = attribute_docs_to_bbcode(&method.attributes)?;
 
     let name = method.name.to_string();
     let name = xml_escape(name);
@@ -253,8 +305,7 @@ fn format_virtual_method_xml(method: venial::Function) -> Option<String> {
 }
 
 fn format_method_xml(method: &FuncDefinition) -> Option<String> {
-    let desc = attribute_docs_to_bbcode(&method.external_attributes)?;
-    let desc = xml_escape(desc);
+    let (desc, deprecated, experimental) = attribute_docs_to_bbcode(&method.external_attributes)?;
 
     let name = method
         .registered_name
@@ -272,7 +323,7 @@ fn format_method_xml(method: &FuncDefinition) -> Option<String> {
 
     Some(format!(
         r#"
-<method name="{name}">
+<method name="{name}" {deprecated} {experimental}>
   <return type="{return_ty}" />
   {params}
   <description>
