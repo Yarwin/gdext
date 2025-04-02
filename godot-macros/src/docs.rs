@@ -157,20 +157,27 @@ fn docs_with_attributes(doc: &[venial::Attribute]) -> (String, String, String) {
     let (mut docs, mut deprecated, mut experimental) =
         (String::new(), String::new(), String::new());
 
-    // Allows to compare our current bucket (the one we put current paragraph in) with docs one.
+    // Allows to compare the current bucket (the one we put current paragraph in) with docs one.
     let docs_bucket = std::ptr::from_ref(&docs);
     let mut current_bucket: &mut String = &mut docs;
 
     for line in extract_docs_from_attributes(doc) {
-        // Switch back from attribute docs to user docs when paragraph ends.
-        if !std::ptr::eq(current_bucket, docs_bucket) && line.is_empty() {
-            current_bucket = &mut docs;
-            // Skip current line to avoid doubling newlines.
+        let trimmed = line.trim_start();
+
+        // End of the paragraph (`#[doc=""]` or `///`) .
+        if trimmed.is_empty() {
+            // Switch back from attribute docs to user docs when paragraph ends.
+            // Don't double newlines after XML attribute tags descriptions.
+            if !std::ptr::eq(current_bucket, docs_bucket) {
+                current_bucket = &mut docs;
+            } else {
+                // End of the paragraph.
+                current_bucket.push_str("\n\n");
+            }
             continue;
         }
 
         // Check for `/// @deprecated` ... or `/// @experimental`
-        let trimmed = line.trim_start();
         if trimmed.starts_with("@deprecated") {
             current_bucket = &mut deprecated;
             current_bucket.push_str(trimmed.trim_start_matches("@deprecated"));
