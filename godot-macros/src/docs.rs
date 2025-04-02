@@ -172,7 +172,7 @@ fn docs_with_attributes(doc: &[venial::Attribute]) -> (String, String, String) {
                 current_bucket = &mut docs;
             } else {
                 // End of the paragraph.
-                current_bucket.push_str("\n\n");
+                current_bucket.push('\n');
             }
             continue;
         }
@@ -186,6 +186,7 @@ fn docs_with_attributes(doc: &[venial::Attribute]) -> (String, String, String) {
             current_bucket.push_str(trimmed.trim_start_matches("@experimental"));
         } else {
             current_bucket.push_str(&line);
+            current_bucket.push('\n');
         }
     }
 
