@@ -443,7 +443,7 @@ use crate::util::{bail, ident, KvParser};
 ///     /// You can use markdown formatting such as _italics_.
 ///     ///
 ///     /// @experimental `@experimental` and `@deprecated` attributes are supported.
-///     /// Following lines are being part of the given attribute as long as they are not empty.
+///     /// The description for such attribute spans for the whole annotated paragraph.
 ///     ///
 ///     /// This is the rest of a doc description.
 ///     #[var]

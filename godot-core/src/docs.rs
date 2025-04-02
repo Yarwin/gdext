@@ -123,7 +123,7 @@ pub fn gather_xml_docs() -> impl Iterator<Item = String> {
                 };
 
             format!(r#"<?xml version="1.0" encoding="UTF-8"?>
-<class name="{class}" inherits="{base}" {deprecated} {experimental} xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+<class name="{class}" inherits="{base}"{deprecated}{experimental} xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
 <brief_description>{brief}</brief_description>
 <description>{description}</description>
 {methods_block}
