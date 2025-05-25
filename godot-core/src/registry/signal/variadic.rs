@@ -11,6 +11,8 @@
 //
 // Could be generalized with R return type, and not special-casing `self`. But keep simple until actually needed.
 
+use std::marker::PhantomData;
+
 /// Trait that is implemented for functions that can be connected to signals.
 ///
 // Direct RustDoc link doesn't work, for whatever reason again...
@@ -25,6 +27,16 @@ pub trait SignalReceiver<I, Ps>: 'static {
     fn call(&mut self, maybe_instance: I, params: Ps);
 }
 
+pub struct DeFuck<'c_rcv, I, Ps, S>
+where
+    S: SignalReceiver<I, Ps>
+{
+    pub inner: &'c_rcv mut S,
+    identity: PhantomData<I>,
+    params: PhantomData<Ps>,
+}
+
+
 // ----------------------------------------------------------------------------------------------------------------------------------------------
 // Generated impls
 
@@ -32,6 +44,43 @@ macro_rules! impl_signal_recipient {
     ($( $args:ident : $Ps:ident ),*) => {
         // --------------------------------------------------------------------------------------------------------------------------------------
         // SignalReceiver
+
+
+        impl<'c_rcv, F, R, C, $($Ps,)*> From<&'c_rcv mut F> for DeFuck<'c_rcv, &mut C, ($($Ps,)*), F>
+            where F: FnMut( &mut C, $($Ps,)* ) -> R + 'static
+        {
+            fn from(value: &'c_rcv mut F) -> Self {
+                DeFuck {
+                    inner: value,
+                    identity: PhantomData,
+                    params: PhantomData
+                }
+            }
+        }
+
+
+        // impl<F, R, $($Ps,)*> CallHack<(), ( $($Ps,)* )> for F
+        // where
+        //     F: FnMut( $($Ps,)* ) -> R + 'static {
+        //
+        // }
+        //
+        // impl<F, R, C, $($Ps,)*> CallHack<&mut C, ( $($Ps,)* )> for F
+        // where
+        //     F: FnMut(&mut C, $($Ps,)* ) -> R + 'static {
+        //
+        // }
+        //
+        // impl<F, R, C, $($Ps,)*> CallHack<&C, ( $($Ps,)* )> for F
+        // where
+        //     F: FnMut(&C, $($Ps,)* ) -> R + 'static {
+        //
+        // }
+
+        // impl<Closure, R> CallHack<(), ( $($Ps,)* ), Closure> for Closure
+        // where
+        //     Closure: FnMut( $($Ps,)* ) -> R + 'static + SignalReceiver<(), ( $($Ps,)* )>
+        // {}
 
         // Global and associated functions.
         impl<F, R, $($Ps,)*> SignalReceiver<(), ( $($Ps,)* )> for F

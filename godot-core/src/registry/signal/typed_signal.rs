@@ -14,6 +14,7 @@ use crate::registry::signal::{
 };
 use std::borrow::Cow;
 use std::marker::PhantomData;
+use crate::registry::signal::variadic::{DeFuck};
 
 /// Object part of the signal receiver (handler).
 ///
@@ -221,12 +222,13 @@ impl<C: WithUserSignals, Ps: meta::InParamTuple + 'static> TypedSignal<'_, C, Ps
     pub fn connect_self<F>(&mut self, mut function: F)
     where
         for<'c_rcv> F: SignalReceiver<&'c_rcv mut C, Ps>,
+        for<'c_rcv> DeFuck<'c_rcv, &'c_rcv mut C, Ps, F>: From<&'c_rcv mut F>
     {
         let mut gd = self.receiver_object();
         let godot_fn = make_godot_fn(move |args| {
             let mut instance = gd.bind_mut();
             let instance = &mut *instance;
-            function.call(instance, args);
+            <&mut F as Into<DeFuck<&'_ mut C, Ps, F>>>::into(&mut function).inner.call(instance, args);
         });
 
         self.inner_connect_godot_fn::<F>(godot_fn);

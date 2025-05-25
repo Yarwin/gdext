@@ -357,7 +357,8 @@ fn signal_symbols_engine_inherited_no_own_signals() {
     let mut obj = Receiver::new_alloc();
 
     let mut sig = obj.signals().property_list_changed();
-    sig.connect_self(|this: &mut Receiver| {
+    // look ma, no type annotations
+    sig.connect_self(|this| {
         this.receive_int(941);
     });
 
