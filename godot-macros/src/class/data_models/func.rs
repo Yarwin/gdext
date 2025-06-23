@@ -89,6 +89,13 @@ pub fn make_virtual_callback(
     }
 }
 
+
+// pub fn make_class_extension_method_registration(
+//     class_name: &Ident,
+//     func_definition: FuncDefinition,
+//     interface_trait: Option<&venial::TypeExpr>,
+// )
+
 /// Generates code that registers the specified method for the given class.
 pub fn make_method_registration(
     class_name: &Ident,
@@ -111,6 +118,7 @@ pub fn make_method_registration(
         BeforeKind::Without,
         interface_trait,
     );
+    eprintln!("{forwarding_closure}");
 
     // String literals
     let class_name_str = class_name.to_string();
@@ -177,6 +185,34 @@ pub fn make_method_registration(
 
 // ----------------------------------------------------------------------------------------------------------------------------------------------
 // Implementation
+
+pub enum Implementor<'a> {
+    Class { class_name: &'a Ident },
+    Extension { class_name: Ident, extension_name: &'a Ident}
+}
+
+impl<'a> Implementor<'a> {
+    pub fn new_class(class_name: &'a Ident) -> Implementor<'a> {
+        Self::Class {
+            class_name,
+        }
+    }
+    
+    pub fn new_extension(extension_name: &'a Ident) -> Implementor<'a> {
+        Self::Extension {
+            class_name: ident("C"),
+            extension_name,
+        }
+    }
+    
+    fn class_name(&'a self) -> &'a Ident {
+        match self {
+            Implementor::Class { class_name } => class_name,
+            Implementor::Extension { class_name, .. } => class_name
+        }
+    }
+    
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum ReceiverType {

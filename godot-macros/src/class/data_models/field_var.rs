@@ -231,6 +231,8 @@ impl GetterSetterImpl {
 
         let export_token = export_token.expect("getter/setter generation should not fail");
 
+        eprintln!("{export_token}");
+        
         Self {
             function_name,
             function_impl,

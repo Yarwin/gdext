@@ -7,7 +7,7 @@
 
 //! Internal registration machinery used by proc-macro APIs.
 
-use crate::builtin::StringName;
+use crate::builtin::{GString, StringName};
 use crate::global::PropertyUsageFlags;
 use crate::meta::{ClassName, GodotConvert, GodotType, PropertyHintInfo, PropertyInfo};
 use crate::obj::GodotClass;
@@ -76,6 +76,28 @@ fn register_var_or_export_inner(
             std::ptr::addr_of!(property_info_sys),
             setter_name.string_sys(),
             getter_name.string_sys(),
+        );
+    }
+}
+
+pub fn register_group<C: GodotClass>(category_name: &str, prefix: &str) {
+    unsafe {
+        sys::interface_fn!(classdb_register_extension_class_property_group)(
+            sys::get_library(),
+            C::class_name().string_sys(),
+            GString::from(category_name).string_sys(),
+            GString::from(prefix).string_sys(),
+        );
+    }
+}
+
+pub fn register_subgroup<C: GodotClass>(category_name: &str, prefix: &str) {
+    unsafe {
+        sys::interface_fn!(classdb_register_extension_class_property_subgroup)(
+            sys::get_library(),
+            C::class_name().string_sys(),
+            GString::from(category_name).string_sys(),
+            GString::from(prefix).string_sys(),
         );
     }
 }

@@ -5,6 +5,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+use crate::class::data_models::group_export::FieldGroup;
 use crate::class::{FieldExport, FieldVar};
 use crate::util::{error, KvParser};
 use proc_macro2::{Ident, Span, TokenStream};
@@ -16,6 +17,8 @@ pub struct Field {
     pub default_val: Option<FieldDefault>,
     pub var: Option<FieldVar>,
     pub export: Option<FieldExport>,
+    pub group: Option<FieldGroup>,
+    pub is_class_extension: bool,
     pub is_onready: bool,
     pub is_oneditor: bool,
     #[cfg(feature = "register-docs")]
@@ -31,8 +34,10 @@ impl Field {
             default_val: None,
             var: None,
             export: None,
+            group: None,
             is_onready: false,
             is_oneditor: false,
+            is_class_extension: false,
             #[cfg(feature = "register-docs")]
             attributes: field.attributes.clone(),
             span: field.span(),
@@ -108,20 +113,6 @@ pub enum FieldCond {
     // None, - enable once needed.
     IsOnReady,
     IsOnEditor,
-}
-
-pub struct Fields {
-    /// All fields except `base_field`.
-    pub all_fields: Vec<Field>,
-
-    /// The field with type `Base<T>`, if available.
-    pub base_field: Option<Field>,
-
-    /// Deprecation warnings.
-    pub deprecations: Vec<TokenStream>,
-
-    /// Errors during macro evaluation that shouldn't abort the execution of the macro.
-    pub errors: Vec<venial::Error>,
 }
 
 #[derive(Clone)]

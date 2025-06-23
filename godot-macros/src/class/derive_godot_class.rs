@@ -5,9 +5,10 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+use crate::class::data_models::group_export::{sort_fields_by_group, FieldGroup};
 use crate::class::{
-    make_property_impl, make_virtual_callback, BeforeKind, Field, FieldCond, FieldDefault,
-    FieldExport, FieldVar, Fields, SignatureInfo,
+    make_class_property_impl, make_virtual_callback, BeforeKind, Field, FieldCond, FieldDefault,
+    FieldExport, FieldVar, SignatureInfo,
 };
 use crate::util::{
     bail, error, format_funcs_collection_struct, ident, path_ends_with_complex,
@@ -16,6 +17,8 @@ use crate::util::{
 use crate::{handle_mutually_exclusive_keys, util, ParseResult};
 use proc_macro2::{Ident, Punct, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
+use std::fmt::Display;
+use crate::class::data_models::fields::{Fields, named_fields};
 
 pub fn derive_godot_class(item: venial::Item) -> ParseResult<TokenStream> {
     let class = item.as_struct().ok_or_else(|| {
@@ -33,9 +36,11 @@ pub fn derive_godot_class(item: venial::Item) -> ParseResult<TokenStream> {
     }
 
     let mut modifiers = Vec::new();
-    let named_fields = named_fields(class)?;
+    let named_fields = named_fields(class, "#[derive(GodotClass)]")?;
     let mut struct_cfg = parse_struct_attributes(class)?;
     let mut fields = parse_fields(named_fields, struct_cfg.init_strategy)?;
+    sort_fields_by_group(&mut fields);
+
     if struct_cfg.is_editor_plugin() {
         modifiers.push(quote! { with_editor_plugin })
     }
@@ -75,7 +80,7 @@ pub fn derive_godot_class(item: venial::Item) -> ParseResult<TokenStream> {
     let inherits_macro_ident = format_ident!("inherit_from_{}__ensure_class_exists", base_ty);
 
     let prv = quote! { ::godot::private };
-    let godot_exports_impl = make_property_impl(class_name, &fields);
+    let godot_exports_impl = make_class_property_impl(class_name, &fields);
 
     let godot_withbase_impl = if let Some(Field { name, ty, .. }) = &fields.base_field {
         // Apply the span of the field's type so that errors show up on the field's type.
@@ -559,25 +564,6 @@ fn parse_struct_attributes(class: &venial::Struct) -> ParseResult<ClassAttribute
     })
 }
 
-/// Fetches data for all named fields for a struct.
-///
-/// Errors if `class` is a tuple struct.
-fn named_fields(class: &venial::Struct) -> ParseResult<Vec<(venial::NamedField, Punct)>> {
-    // This is separate from parse_fields to improve compile errors. The errors from here demand larger and more non-local changes from the API
-    // user than those from parse_struct_attributes, so this must be run first.
-    match &class.fields {
-        // TODO disallow unit structs in the future
-        // It often happens that over time, a registered class starts to require a base field.
-        // Extending a {} struct requires breaking less code, so we should encourage it from the start.
-        venial::Fields::Unit => Ok(vec![]),
-        venial::Fields::Tuple(_) => bail!(
-            &class.fields,
-            "#[derive(GodotClass)] is not supported for tuple structs",
-        )?,
-        venial::Fields::Named(fields) => Ok(fields.fields.inner.clone()),
-    }
-}
-
 /// Returns field names and 1 base field, if available.
 fn parse_fields(
     named_fields: Vec<(venial::NamedField, Punct)>,
@@ -587,6 +573,7 @@ fn parse_fields(
     let mut base_field = Option::<Field>::None;
     let mut deprecations = vec![];
     let mut errors = vec![];
+    let mut groups = vec![];
 
     // Attributes on struct fields
     for (named_field, _punct) in named_fields {
@@ -680,6 +667,8 @@ fn parse_fields(
         if let Some(mut parser) = KvParser::parse(&named_field.attributes, "export")? {
             let export = FieldExport::new_from_kv(&mut parser)?;
             field.export = Some(export);
+            let group = FieldGroup::new_from_kv(&mut parser, &mut groups);
+            field.group = Some(group);
             parser.finish()?;
         }
 
@@ -687,6 +676,14 @@ fn parse_fields(
         if let Some(mut parser) = KvParser::parse(&named_field.attributes, "var")? {
             let var = FieldVar::new_from_kv(&mut parser)?;
             field.var = Some(var);
+            parser.finish()?;
+        }
+
+        // #[class_extension]
+        if let Some(mut parser) = KvParser::parse(&named_field.attributes, "class_extension")? {
+            field.is_class_extension = true;
+            let group = FieldGroup::new_from_kv(&mut parser, &mut groups);
+            field.group = Some(group);
             parser.finish()?;
         }
 
@@ -707,26 +704,7 @@ fn parse_fields(
 
         // Extra validation; eventually assign to base_fields or all_fields.
         if is_base {
-            if field.is_onready {
-                errors.push(error!(
-                    field.ty.clone(),
-                    "base field cannot have type `OnReady<T>`"
-                ));
-            }
-
-            if let Some(var) = field.var.as_ref() {
-                errors.push(error!(
-                    var.span,
-                    "base field cannot have the attribute #[var]"
-                ));
-            }
-
-            if let Some(export) = field.export.as_ref() {
-                errors.push(error!(
-                    export.span,
-                    "base field cannot have the attribute #[export]"
-                ));
-            }
+            validate_special_cases("base field", &field, &mut errors);
 
             if let Some(default_val) = field.default_val.as_ref() {
                 errors.push(error!(
@@ -743,17 +721,59 @@ fn parse_fields(
                     "at most 1 field can have type Base<T>; previous is `{}`", prev_base.name
                 ));
             }
-        } else {
-            all_fields.push(field);
+
+            continue;
         }
+
+        if field.is_class_extension {
+            validate_special_cases("class extension", &field, &mut errors);
+        }
+        
+        all_fields.push(field);
     }
 
     Ok(Fields {
+        groups,
         all_fields,
         base_field,
         deprecations,
         errors,
     })
+}
+
+/// Validate if given special field (Base or Class Extension) isn't `#[export]`, `#[var]`, `OnEditor` or `OnReady`.
+fn validate_special_cases(
+    field_type: impl Display,
+    field: &Field,
+    errors: &mut Vec<venial::Error>,
+) {
+    if field.is_onready {
+        errors.push(error!(
+            field.ty.clone(),
+            "{field_type} cannot have type `OnReady<T>`",
+        ));
+    }
+
+    if field.is_oneditor {
+        errors.push(error!(
+            field.ty.clone(),
+            "{field_type} cannot have type `OnEditor<T>`",
+        ));
+    }
+
+    if let Some(var) = field.var.as_ref() {
+        errors.push(error!(
+            var.span,
+            "{field_type} cannot have the attribute #[var]"
+        ));
+    }
+
+    if let Some(export) = field.export.as_ref() {
+        errors.push(error!(
+            export.span,
+            "{field_type} cannot have the attribute #[export]"
+        ));
+    }
 }
 
 fn handle_opposite_keys(

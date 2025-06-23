@@ -689,6 +689,24 @@ pub mod cap {
         fn __register_exports();
     }
 
+    pub trait ImplementsClassExtensionGodotExports<C>
+    where
+        C: GodotClass,
+    {
+        #[doc(hidden)]
+        fn __register_exports();
+    }
+
+    pub trait WithClassExtension<C>
+    where
+        Self: GodotClass,
+    {
+        #[doc(hidden)]
+        fn __get_extension(&self) -> &C;
+        #[doc(hidden)]
+        fn __get_extension_mut(&mut self) -> &mut C;
+    }
+
     /// Auto-implemented for `#[godot_api] impl XyVirtual for MyClass` blocks
     pub trait ImplementsGodotVirtual: GodotClass {
         // Cannot use #[cfg(since_api = "4.4")] on the `hash` parameter, because the doc-postprocessing generates #[doc(cfg)],

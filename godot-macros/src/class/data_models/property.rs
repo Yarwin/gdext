@@ -7,10 +7,12 @@
 
 //! Parses the `#[var]` and `#[export]` attributes on fields.
 
-use crate::class::{Field, FieldVar, Fields, GetSet, GetterSetterImpl, UsageFlags};
-use crate::util::{format_funcs_collection_constant, format_funcs_collection_struct};
+use crate::class::data_models::group_export::FieldGroup;
+use crate::class::{Field, FieldVar, GetSet, GetterSetterImpl, UsageFlags};
+use crate::util::{format_funcs_collection_constant, format_funcs_collection_struct, ident};
 use proc_macro2::{Ident, TokenStream};
-use quote::quote;
+use quote::{quote, ToTokens};
+use crate::class::data_models::fields::Fields;
 
 #[derive(Default, Clone, Debug)]
 pub enum FieldHint {
@@ -37,10 +39,13 @@ impl FieldHint {
     }
 }
 
-pub fn make_property_impl(class_name: &Ident, fields: &Fields) -> TokenStream {
+pub fn make_class_property_impl(class_name: &Ident, fields: &Fields) -> TokenStream {
     let mut getter_setter_impls = Vec::new();
     let mut func_name_consts = Vec::new();
     let mut export_tokens = Vec::new();
+    let mut class_extension_impls = Vec::new();
+
+    let (mut current_group, mut current_subgroup) = (None, None);
 
     for field in &fields.all_fields {
         let Field {
@@ -48,8 +53,27 @@ pub fn make_property_impl(class_name: &Ident, fields: &Fields) -> TokenStream {
             ty: field_type,
             var,
             export,
+            group,
+            is_class_extension,
             ..
         } = field;
+
+        register_group_or_subgroup(
+            group,
+            &mut current_group,
+            &mut current_subgroup,
+            &fields.groups,
+            &mut export_tokens,
+            class_name,
+        );
+
+        if *is_class_extension {
+            let (class_extension_impl, class_extension_registration_impl) =
+                make_class_extension(field, class_name);
+            class_extension_impls.push(class_extension_impl);
+            export_tokens.push(class_extension_registration_impl);
+            continue;
+        }
 
         // Ensure we add a var if the user only provided a `#[export]`.
         let var = match (export, var) {
@@ -59,17 +83,14 @@ pub fn make_property_impl(class_name: &Ident, fields: &Fields) -> TokenStream {
                 } else {
                     UsageFlags::InferredExport
                 };
-                Some(FieldVar {
+                FieldVar {
                     usage_flags,
                     ..Default::default()
-                })
+                }
             }
 
-            (_, var) => var.clone(),
-        };
-
-        let Some(var) = var else {
-            continue;
+            (_, Some(var)) => var.clone(),
+            _ => continue,
         };
 
         let field_name = field_ident.to_string();
@@ -195,6 +216,166 @@ pub fn make_property_impl(class_name: &Ident, fields: &Fields) -> TokenStream {
                 )*
             }
         }
+
+        #(#class_extension_impls)*
+    }
+}
+
+pub fn make_class_extension_property_impl(extension_name: &Ident, fields: &Fields) -> TokenStream {
+    let mut getter_setter_impls = Vec::new();
+    let mut func_name_consts = Vec::new();
+    let mut export_tokens = Vec::new();
+    let (mut current_group, mut current_subgroup) = (None, None);
+    
+    for field in &fields.all_fields {
+        let Field {
+            name: field_ident,
+            ty: field_type,
+            var,
+            export,
+            group,
+            ..
+        } = field;
+
+        register_group_or_subgroup(
+            group,
+            &mut current_group,
+            &mut current_subgroup,
+            &fields.groups,
+            &mut export_tokens,
+            extension_name,
+        );
+
+        // Ensure we add a var if the user only provided a `#[export]`.
+        let var = match (export, var) {
+            (Some(export), None) => {
+                let usage_flags = if let Some(usage) = export.to_export_usage() {
+                    UsageFlags::Custom(vec![usage])
+                } else {
+                    UsageFlags::InferredExport
+                };
+                FieldVar {
+                    usage_flags,
+                    ..Default::default()
+                }
+            }
+
+            (_, Some(var)) => var.clone(),
+            _ => continue,
+        };
+        let field_name = field_ident.to_string();
+
+        let FieldVar {
+            getter,
+            setter,
+            hint,
+            mut usage_flags,
+            ..
+        } = var;
+
+        let export_hint;
+        let registration_fn;
+
+        if let Some(export) = export {
+            if usage_flags.is_inferred() {
+                usage_flags = UsageFlags::InferredExport;
+            }
+
+            export_hint = export.to_export_hint();
+            registration_fn = quote! { register_export };
+        } else {
+            export_hint = None;
+            registration_fn = quote! { register_var };
+        }
+
+        let usage_flags = match usage_flags {
+            UsageFlags::Inferred => {
+                quote! { ::godot::global::PropertyUsageFlags::NONE }
+            }
+            UsageFlags::InferredExport => {
+                quote! { ::godot::global::PropertyUsageFlags::DEFAULT }
+            }
+            UsageFlags::Custom(flags) => quote! {
+                #(
+                    ::godot::global::PropertyUsageFlags::#flags
+                )|*
+            },
+        };
+
+        let hint = match hint {
+            FieldHint::Inferred => {
+                if let Some(export_hint) = export_hint {
+                    quote! { #export_hint }
+                } else if export.is_some() {
+                    quote! { <#field_type as ::godot::register::property::Export>::export_hint() }
+                } else {
+                    quote! { <#field_type as ::godot::register::property::Var>::var_hint() }
+                }
+            }
+            FieldHint::Hint(hint) => {
+                let hint_string = if let Some(export_hint) = export_hint {
+                    quote! { #export_hint.hint_string }
+                } else {
+                    quote! { ::godot::builtin::GString::new() }
+                };
+
+                quote! {
+                    ::godot::meta::PropertyHintInfo {
+                        hint: ::godot::global::PropertyHint::#hint,
+                        hint_string: #hint_string,
+                    }
+                }
+            }
+            FieldHint::HintWithString { hint, hint_string } => quote! {
+                ::godot::meta::PropertyHintInfo {
+                    hint: ::godot::global::PropertyHint::#hint,
+                    hint_string: ::godot::builtin::GString::from(#hint_string),
+                }
+            },
+        };
+
+        // Note: {getter,setter}_tokens can be either a path `Class_Functions::constant_name` or an empty string `""`.
+
+        let getter_tokens = make_getter_setter(
+            getter.to_impl(extension_name, GetSet::Get, field),
+            &mut getter_setter_impls,
+            &mut func_name_consts,
+            &mut export_tokens,
+            extension_name,
+        );
+        let setter_tokens = make_getter_setter(
+            setter.to_impl(extension_name, GetSet::Set, field),
+            &mut getter_setter_impls,
+            &mut func_name_consts,
+            &mut export_tokens,
+            extension_name,
+        );
+
+    }
+    
+    let class_functions_name = format_funcs_collection_struct(extension_name);
+    
+    quote! {
+        impl #extension_name {
+            #(#getter_setter_impls)*
+        }
+
+        impl #class_functions_name {
+            #(#func_name_consts)*
+        }
+
+        impl ::godot::obj::cap::ImplementsClassExtensionGodotExports<C> for #extension_name
+        where 
+            C: GodotClass + ::godot::obj::cap::WithClassExtension<#extension_name>
+        {
+            fn __register_exports() {
+                #(
+                    {
+                        #export_tokens
+                    }
+                )*
+            }
+        }
     }
 }
 
@@ -219,4 +400,91 @@ fn make_getter_setter(
     let constant = format_funcs_collection_constant(class_name, &gs.function_name);
 
     quote! { #funcs_collection::#constant }
+}
+
+fn make_class_extension(field: &Field, class_name: &Ident) -> (TokenStream, TokenStream) {
+    let Field {
+        name: field_ident,
+        ty: field_type,
+        ..
+    } = field;
+
+    let registration_impl = quote! {
+       <#field_type as ::godot::obj::cap::ImplementsClassExtensionGodotExports<#class_name>>::__register_exports();
+    };
+
+    let class_extension_impl = quote! {
+        impl ::godot::obj::cap::WithClassExtension<#field_type> for #class_name {
+            #[doc(hidden)]
+            fn __get_extension(&self) -> & #field_type {
+                &self.#field_ident
+            }
+
+            #[doc(hidden)]
+            fn __get_extension_mut(&mut self) -> &mut #field_type {
+                &mut self.#field_ident
+            }
+        }
+    };
+
+    (class_extension_impl, registration_impl)
+}
+
+/// Pushes registration of group or subgroup in case if they differ from previously registered ones.
+///
+/// Group membership depends on the order of fields registration – all the properties belong to group or subgroup registered before them.
+fn register_group_or_subgroup(
+    field_group: &Option<FieldGroup>,
+    current_group: &mut Option<usize>,
+    current_subgroup: &mut Option<usize>,
+    groups: &Vec<String>,
+    export_tokens: &mut Vec<TokenStream>,
+    class_name: &Ident,
+) {
+    let Some(group) = field_group else {
+        return;
+    };
+    
+    if let Some(group_registration) = make_group_registration(
+        current_group,
+        group.group_name_index,
+        groups,
+        ident("register_group"),
+        class_name,
+    ) {
+        export_tokens.push(group_registration);
+    }
+
+    if let Some(subgroup_registration) = make_group_registration(
+        current_subgroup,
+        group.subgroup_name_index,
+        groups,
+        ident("register_subgroup"),
+        class_name,
+    ) {
+        export_tokens.push(subgroup_registration);
+    }
+}
+
+fn make_group_registration(
+    current: &mut Option<usize>,
+    new: Option<usize>,
+    groups: &Vec<String>,
+    register_fn: Ident,
+    class_name: &Ident,
+) -> Option<TokenStream> {
+    let new_group = new?;
+
+    if current.is_none_or(|cur| cur != new_group) {
+        *current = Some(new_group);
+        let group = groups.get(new_group)?;
+        Some(quote! {
+        ::godot::register::private::#register_fn::<#class_name>(
+                        #group,
+                        ""
+                    );
+        })
+    } else {
+        None
+    }
 }

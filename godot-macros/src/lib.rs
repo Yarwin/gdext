@@ -472,9 +472,18 @@ use crate::util::{bail, ident, KvParser};
     alias = "tool",
     alias = "rename"
 )]
-#[proc_macro_derive(GodotClass, attributes(class, base, hint, var, export, init))]
+#[proc_macro_derive(
+    GodotClass,
+    attributes(class, base, hint, var, export, init, class_extension)
+)]
 pub fn derive_godot_class(input: TokenStream) -> TokenStream {
     translate(input, class::derive_godot_class)
+}
+
+/// Todo – docs!
+#[proc_macro_derive(ClassExtension, attributes(hint, var, export, init))]
+pub fn derive_class_extension(input: TokenStream) -> TokenStream {
+    translate(input, class::derive_class_extension)
 }
 
 /// Proc-macro attribute to be used with `impl` blocks of [`#[derive(GodotClass)]`][GodotClass] structs.

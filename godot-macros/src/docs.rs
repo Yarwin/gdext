@@ -38,6 +38,7 @@ pub fn document_struct(
 
     let members = fields
         .iter()
+        // Todo - class extension should provide docs for its fields as well.
         .filter(|field| field.var.is_some() || field.export.is_some())
         .filter_map(format_member_xml)
         .collect::<String>();

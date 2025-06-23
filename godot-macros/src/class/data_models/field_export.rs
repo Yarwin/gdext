@@ -430,7 +430,7 @@ impl ExportType {
         match self {
             Self::Default => None,
 
-            Self::Storage => quote_export_func! { export_storage() },
+            Self::Storage => quote_export_func! { export_none() },
 
             Self::Range {
                 min,
