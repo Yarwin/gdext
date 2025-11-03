@@ -4,10 +4,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-
+use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
-use std::sync::{Mutex, MutexGuard};
 
 use crate::cell::CellState;
 
@@ -19,10 +18,11 @@ use crate::cell::CellState;
 #[derive(Debug)]
 pub struct RefGuard<'a, T> {
     /// The current state of borrows to the borrowed value.
-    state: &'a Mutex<CellState<T>>,
+    state: *mut CellState<T>,
 
     /// A pointer to the borrowed value.
     value: NonNull<T>,
+    _phantoms: PhantomData<&'a ()>,
 }
 
 impl<'a, T> RefGuard<'a, T> {
@@ -40,8 +40,12 @@ impl<'a, T> RefGuard<'a, T> {
     ///
     /// These conditions ensure that it is safe to call [`as_ref()`](NonNull::as_ref) on `value` for as long
     /// as the returned guard exists.
-    pub(crate) unsafe fn new(state: &'a Mutex<CellState<T>>, value: NonNull<T>) -> Self {
-        Self { state, value }
+    pub(crate) unsafe fn new(state: *mut CellState<T>, value: NonNull<T>) -> Self {
+        Self {
+            state,
+            value,
+            _phantoms: PhantomData,
+        }
     }
 }
 
@@ -56,8 +60,7 @@ impl<T> Deref for RefGuard<'_, T> {
 
 impl<T> Drop for RefGuard<'_, T> {
     fn drop(&mut self) {
-        self.state
-            .lock()
+        unsafe { self.state.as_mut() }
             .unwrap()
             .borrow_state
             .decrement_shared()
@@ -74,7 +77,7 @@ impl<T> Drop for RefGuard<'_, T> {
 /// reference handed out by this guard.
 #[derive(Debug)]
 pub struct MutGuard<'a, T> {
-    state: &'a Mutex<CellState<T>>,
+    state: &'a mut CellState<T>,
     count: usize,
     value: NonNull<T>,
 }
@@ -109,11 +112,7 @@ impl<'a, T> MutGuard<'a, T> {
     ///   prevent any new references from being made.
     /// - When it is made inaccessible, [`GdCell`](super::GdCell) will also ensure that any new references
     ///   are derived from this guard's `value` pointer, thus preventing `value` from being invalidated.
-    pub(crate) unsafe fn new(
-        state: &'a Mutex<CellState<T>>,
-        count: usize,
-        value: NonNull<T>,
-    ) -> Self {
+    pub(crate) unsafe fn new(state: &'a mut CellState<T>, count: usize, value: NonNull<T>) -> Self {
         Self {
             state,
             count,
@@ -126,7 +125,7 @@ impl<T> Deref for MutGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        let count = self.state.lock().unwrap().borrow_state.mut_count();
+        let count = self.state.borrow_state.mut_count();
         // This is just a best-effort error check. It should never be triggered.
         assert_eq!(
             self.count,
@@ -152,7 +151,7 @@ impl<T> Deref for MutGuard<'_, T> {
 
 impl<T> DerefMut for MutGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        let count = self.state.lock().unwrap().borrow_state.mut_count();
+        let count = self.state.borrow_state.mut_count();
         // This is just a best-effort error check. It should never be triggered.
         assert_eq!(
             self.count,
@@ -179,12 +178,7 @@ impl<T> DerefMut for MutGuard<'_, T> {
 
 impl<T> Drop for MutGuard<'_, T> {
     fn drop(&mut self) {
-        self.state
-            .lock()
-            .unwrap()
-            .borrow_state
-            .decrement_mut()
-            .unwrap();
+        self.state.borrow_state.decrement_mut().unwrap();
     }
 }
 
@@ -199,9 +193,10 @@ impl<T> Drop for MutGuard<'_, T> {
 /// is dropped, it resets the state to what it was before, as if this guard never existed.
 #[derive(Debug)]
 pub struct InaccessibleGuard<'a, T> {
-    state: &'a Mutex<CellState<T>>,
+    state: *mut CellState<T>,
     stack_depth: usize,
     prev_ptr: NonNull<T>,
+    _phantoms: PhantomData<&'a ()>,
 }
 
 impl<'a, T> InaccessibleGuard<'a, T> {
@@ -216,15 +211,15 @@ impl<'a, T> InaccessibleGuard<'a, T> {
     /// - There are any shared references.
     /// - `new_ref` is not equal to the pointer in `state`.
     pub(crate) fn new<'b>(
-        state: &'a Mutex<CellState<T>>,
+        state: *mut CellState<T>,
         new_ref: &'b mut T,
     ) -> Result<Self, Box<dyn std::error::Error>>
     where
         'a: 'b,
     {
-        let mut guard = state.lock().unwrap();
+        let cell_state = unsafe { state.as_mut() }.unwrap();
 
-        let current_ptr = guard.get_ptr();
+        let current_ptr = cell_state.get_ptr();
         let new_ptr = NonNull::from(new_ref);
 
         if current_ptr != new_ptr {
@@ -232,23 +227,21 @@ impl<'a, T> InaccessibleGuard<'a, T> {
             return Err("wrong reference passed in".into());
         }
 
-        guard.borrow_state.set_inaccessible()?;
-        let prev_ptr = guard.get_ptr();
-        let stack_depth = guard.push_ptr(new_ptr);
+        cell_state.borrow_state.set_inaccessible()?;
+        let prev_ptr = cell_state.get_ptr();
+        let stack_depth = cell_state.push_ptr(new_ptr);
 
         Ok(Self {
             state,
             stack_depth,
             prev_ptr,
+            _phantoms: PhantomData,
         })
     }
 
     /// Single implementation of drop-logic for use in both drop implementations.
-    fn perform_drop(
-        mut state: MutexGuard<'_, CellState<T>>,
-        prev_ptr: NonNull<T>,
-        stack_depth: usize,
-    ) {
+    fn perform_drop(state: *mut CellState<T>, prev_ptr: NonNull<T>, stack_depth: usize) {
+        let state = unsafe { state.as_mut() }.unwrap();
         if state.stack_depth != stack_depth {
             state
                 .borrow_state
@@ -266,11 +259,11 @@ impl<'a, T> InaccessibleGuard<'a, T> {
     #[doc(hidden)]
     pub fn try_drop(self) -> Result<(), std::mem::ManuallyDrop<Self>> {
         let manual = std::mem::ManuallyDrop::new(self);
-        let state = manual.state.lock().unwrap();
+        let state = unsafe { manual.state.as_mut() }.unwrap();
         if !state.borrow_state.may_unset_inaccessible() || state.stack_depth != manual.stack_depth {
             return Err(manual);
         }
-        Self::perform_drop(state, manual.prev_ptr, manual.stack_depth);
+        Self::perform_drop(manual.state, manual.prev_ptr, manual.stack_depth);
 
         Ok(())
     }
@@ -280,7 +273,6 @@ impl<T> Drop for InaccessibleGuard<'_, T> {
     fn drop(&mut self) {
         // Default behavior of drop-logic simply panics and poisons the cell on failure. This is appropriate
         // for single-threaded code where no errors should happen here.
-        let state = self.state.lock().unwrap();
-        Self::perform_drop(state, self.prev_ptr, self.stack_depth);
+        Self::perform_drop(self.state, self.prev_ptr, self.stack_depth);
     }
 }
