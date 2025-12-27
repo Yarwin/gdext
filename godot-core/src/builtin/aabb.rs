@@ -8,15 +8,13 @@
 use godot_ffi as sys;
 use sys::{ffi_methods, ExtVariantType, GodotFfi};
 
-use crate::builtin::math::ApproxEq;
+use crate::builtin::math::{ApproxEq, FloatExt};
 use crate::builtin::{real, Plane, Vector3, Vector3Axis};
 
 /// Axis-aligned bounding box in 3D space.
 ///
 /// `Aabb` consists of a position, a size, and several utility functions. It is typically used for
 /// fast overlap tests.
-///
-/// Currently most methods are only available through [`InnerAabb`](super::inner::InnerAabb).
 ///
 /// # All bounding-box types
 ///
@@ -51,9 +49,15 @@ impl Aabb {
         Self { position, size }
     }
 
+    #[inline]
+    #[deprecated = "Renamed to `from_position_end`."]
+    pub fn from_corners(position: Vector3, end: Vector3) -> Self {
+        Self::from_position_end(position, end)
+    }
+
     /// Create a new `Aabb` with the first corner at `position` and opposite corner at `end`.
     #[inline]
-    pub fn from_corners(position: Vector3, end: Vector3) -> Self {
+    pub fn from_position_end(position: Vector3, end: Vector3) -> Self {
         // Cannot use floating point arithmetic in const functions.
         Self::new(position, end - position)
     }
@@ -102,7 +106,7 @@ impl Aabb {
         let position = self.position.coord_min(b.position);
         let end = self.end().coord_max(b.end());
 
-        Self::from_corners(position, end)
+        Self::from_position_end(position, end)
     }
 
     /// Returns the volume of the AABB.
@@ -205,9 +209,10 @@ impl Aabb {
     ///
     /// _Godot equivalent: `get_endpoint`_
     #[inline]
-    pub fn get_endpoint(&self, idx: usize) -> Vector3 {
+    #[doc(alias = "get_endpoint")]
+    pub fn get_corner(&self, idx: usize) -> Vector3 {
         *self
-            .endpoints()
+            .corners()
             .get(idx)
             .expect("Tried to retrieve vertex no. {idx} from Aabb which has only 8 vertices")
     }
@@ -329,7 +334,7 @@ impl Aabb {
     ///
     /// The vertex ordering matches GDScript's ordering for `get_endpoint`. The first vertex is the same as `position`, and the last is the same as `end`.
     #[inline]
-    pub fn endpoints(&self) -> [Vector3; 8] {
+    pub fn corners(&self) -> [Vector3; 8] {
         [
             self.position,
             self.position + Vector3::new(0.0, 0.0, self.size.z),
@@ -345,8 +350,7 @@ impl Aabb {
     /// Returns `true` if the AABB is on both sides of a plane.
     #[inline]
     pub fn intersects_plane(self, plane: Plane) -> bool {
-        // The set of the edges of the AABB.
-        let points = self.endpoints();
+        let points = self.corners();
 
         let mut over = false;
         let mut under = false;
@@ -417,20 +421,29 @@ impl Aabb {
         (tnear, tfar)
     }
 
-    /// Returns `true` if the given ray intersects with this AABB. Segment length is finite.
+    /// Returns minimal distance to intersection with a segment iff this bounding box and the given segment intersect.
     ///
     /// # Panics
     /// If `self.size` is negative.
-    #[inline]
-    pub fn intersects_segment(self, from: Vector3, to: Vector3) -> bool {
+    fn intersect_segment_inner(self, from: Vector3, to: Vector3) -> Option<real> {
         self.assert_nonnegative();
 
         let segment_dir = to - from;
 
+        // Distance to intersect (enter) the AABB.
         let mut t_min: real = 0.0;
+        // Distance to exit the AABB.
         let mut t_max: real = 1.0;
 
         for axis in [Vector3Axis::X, Vector3Axis::Y, Vector3Axis::Z] {
+            if segment_dir[axis].is_zero_approx() {
+                // Bail if the ray can't possibly enter the box.
+                if from[axis] < self.position[axis] || from[axis] > self.end()[axis] {
+                    return None;
+                }
+                continue;
+            }
+
             let inv_dir = 1.0 / segment_dir[axis];
 
             let t1 = (self.position[axis] - from[axis]) * inv_dir;
@@ -438,17 +451,39 @@ impl Aabb {
 
             let (t_near, t_far) = if t1 < t2 { (t1, t2) } else { (t2, t1) };
 
-            // Update t_min and t_max
             t_min = t_min.max(t_near);
             t_max = t_max.min(t_far);
 
             if t_min > t_max {
-                // No intersection or segment completely outside the AABB
-                return false;
+                // Aabb is missed since we "exit" before entering it.
+                return None;
             }
         }
 
-        true
+        Some(t_min)
+    }
+
+    /// Returns `true` if this bounding box and the given segment intersect.
+    ///
+    /// # Panics
+    /// If `self.size` is negative.
+    ///
+    /// _Godot equivalent: `bool(intersects_segment(from, to))`_
+    #[inline]
+    pub fn intersects_segment(self, from: Vector3, to: Vector3) -> bool {
+        self.intersect_segment_inner(from, to).is_some()
+    }
+
+    /// Returns the first point where this bounding box and the given segment intersect.
+    ///
+    /// # Panics
+    /// If `self.size` is negative.
+    ///
+    /// _Godot equivalent: `intersects_segment`_
+    #[inline]
+    pub fn intersect_segment(self, from: Vector3, to: Vector3) -> Option<Vector3> {
+        let t_min = self.intersect_segment_inner(from, to)?;
+        Some(from + (to - from) * t_min)
     }
 
     /// Assert that the size of the `Aabb` is not negative.
