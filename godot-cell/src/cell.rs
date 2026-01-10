@@ -10,7 +10,6 @@ use std::error::Error;
 use std::marker::PhantomPinned;
 use std::pin::Pin;
 use std::ptr::NonNull;
-use std::sync::Mutex;
 
 use crate::borrow_state::BorrowState;
 use crate::guards::{InaccessibleGuard, MutGuard, RefGuard};
@@ -77,7 +76,7 @@ impl<T> GdCell<T> {
 #[derive(Debug)]
 pub(crate) struct GdCellInner<T> {
     /// The mutable state of this cell.
-    pub(crate) state: Mutex<CellState<T>>,
+    pub(crate) state: UnsafeCell<CellState<T>>,
     /// The actual value we're handing out references to, uses `UnsafeCell` as we're passing out `&mut`
     /// references to its contents even when we only have a `&` reference to the cell.
     value: UnsafeCell<T>,
@@ -89,12 +88,12 @@ impl<T> GdCellInner<T> {
     /// Creates a new cell storing `value`.
     pub fn new(value: T) -> Pin<Box<Self>> {
         let cell = Box::pin(Self {
-            state: Mutex::new(CellState::new()),
+            state: UnsafeCell::new(CellState::new()),
             value: UnsafeCell::new(value),
             _pin: PhantomPinned,
         });
 
-        cell.state.lock().unwrap().initialize_ptr(&cell.value);
+        unsafe { (&mut *cell.state.get()).initialize_ptr(&cell.value) }
 
         cell
     }
@@ -103,20 +102,26 @@ impl<T> GdCellInner<T> {
     ///
     /// Fails if an accessible mutable reference exists.
     pub fn borrow(self: Pin<&Self>) -> Result<RefGuard<'_, T>, Box<dyn Error>> {
-        let mut state = self.state.lock().unwrap();
-        state.borrow_state.increment_shared()?;
+        {
+            let state = unsafe { &mut *self.state.get() };
+            state.borrow_state.increment_shared()?;
+        }
+
+        let state = unsafe { &*self.state.get() };
+        let value = state.get_ptr();
 
         // SAFETY: `increment_shared` succeeded, therefore there cannot currently be any accessible mutable
         // references.
-        unsafe { Ok(RefGuard::new(&self.get_ref().state, state.get_ptr())) }
+        unsafe { Ok(RefGuard::new(self.state.get(), value)) }
     }
 
     /// Returns a new mutable reference to the contents of the cell.
     ///
     /// Fails if an accessible mutable reference exists, or a shared reference exists.
     pub fn borrow_mut(self: Pin<&Self>) -> Result<MutGuard<'_, T>, Box<dyn Error>> {
-        let mut state = self.state.lock().unwrap();
+        let state = unsafe { &mut *self.state.get() };
         state.borrow_state.increment_mut()?;
+
         let count = state.borrow_state.mut_count();
         let value = state.get_ptr();
 
@@ -131,7 +136,7 @@ impl<T> GdCellInner<T> {
         // If `make_inaccessible` is called and succeeds, then a mutable reference from this guard is passed
         // in. In which case, we cannot use this guard again until the resulting inaccessible guard is
         // dropped.
-        unsafe { Ok(MutGuard::new(&self.get_ref().state, count, value)) }
+        unsafe { Ok(MutGuard::new(state, count, value)) }
     }
 
     /// Make the current mutable borrow inaccessible, thus freeing the value up to be reborrowed again.
@@ -144,7 +149,7 @@ impl<T> GdCellInner<T> {
         self: Pin<&'cell Self>,
         current_ref: &'val mut T,
     ) -> Result<InaccessibleGuard<'val, T>, Box<dyn Error>> {
-        InaccessibleGuard::new(&self.get_ref().state, current_ref)
+        InaccessibleGuard::new(self.state.get(), current_ref)
     }
 
     /// Returns `true` if there are any mutable or shared references, regardless of whether the mutable
@@ -157,14 +162,14 @@ impl<T> GdCellInner<T> {
     /// cell hands out a new borrow before it is destroyed. So we still need to ensure that this cannot
     /// happen at the same time.
     pub fn is_currently_bound(self: Pin<&Self>) -> bool {
-        let state = self.state.lock().unwrap();
+        let state = unsafe { &*self.state.get() };
 
         state.borrow_state.shared_count() > 0 || state.borrow_state.mut_count() > 0
     }
 
     /// Similar to [`Self::is_currently_bound`] but only counts mutable references and ignores shared references.
     pub(crate) fn is_currently_mutably_bound(self: Pin<&Self>) -> bool {
-        let state = self.state.lock().unwrap();
+        let state = unsafe { &*self.state.get() };
 
         state.borrow_state.mut_count() > 0
     }
