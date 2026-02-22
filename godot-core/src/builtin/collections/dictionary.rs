@@ -16,7 +16,7 @@ use sys::{GodotFfi, ffi_methods, interface_fn};
 use super::any_dictionary::AnyDictionary;
 use crate::builtin::{AnyArray, Array, VarArray, Variant, VariantType, inner};
 use crate::meta;
-use crate::meta::{AsVArg, Element, ElementType, ExtVariantType, FromGodot, ToGodot};
+use crate::meta::{AsArg, Element, ElementType, ExtVariantType, FromGodot, ToGodot};
 
 /// Godot's `Dictionary` type.
 ///
@@ -161,8 +161,8 @@ impl<K: Element, V: Element> Dictionary<K, V> {
     ///
     /// # Panics
     /// If there is no value for the given key. Note that this is distinct from a `NIL` value, which is returned as `Variant::nil()`.
-    pub fn at(&self, key: impl AsVArg<K>) -> V {
-        meta::varg_into_ref!(key: K);
+    pub fn at(&self, key: impl AsArg<K>) -> V {
+        meta::arg_into_ref!(key: K);
         let key_variant = key.to_variant();
         if self.as_inner().has(&key_variant) {
             self.get_or_panic(key_variant)
@@ -179,8 +179,8 @@ impl<K: Element, V: Element> Dictionary<K, V> {
     /// When you are certain that a key is present, use [`at()`][`Self::at`] instead.
     ///
     /// This can be combined with Rust's `Option` methods, e.g. `dict.get(key).unwrap_or(default)`.
-    pub fn get(&self, key: impl AsVArg<K>) -> Option<V> {
-        meta::varg_into_ref!(key: K);
+    pub fn get(&self, key: impl AsArg<K>) -> Option<V> {
+        meta::arg_into_ref!(key: K);
         let key_variant = key.to_variant();
         if self.as_inner().has(&key_variant) {
             Some(self.get_or_panic(key_variant))
@@ -209,11 +209,11 @@ impl<K: Element, V: Element> Dictionary<K, V> {
     ///
     /// _Godot equivalent: `get_or_add`_
     #[doc(alias = "get_or_add")]
-    pub fn get_or_insert(&mut self, key: impl AsVArg<K>, default: impl AsVArg<V>) -> V {
+    pub fn get_or_insert(&mut self, key: impl AsArg<K>, default: impl AsArg<V>) -> V {
         self.balanced_ensure_mutable();
 
-        meta::varg_into_ref!(key: K);
-        meta::varg_into_ref!(default: V);
+        meta::arg_into_ref!(key: K);
+        meta::arg_into_ref!(default: V);
 
         let key_variant = key.to_variant();
 
@@ -247,8 +247,8 @@ impl<K: Element, V: Element> Dictionary<K, V> {
     ///
     /// _Godot equivalent: `has`_
     #[doc(alias = "has")]
-    pub fn contains_key(&self, key: impl AsVArg<K>) -> bool {
-        meta::varg_into_ref!(key: K);
+    pub fn contains_key(&self, key: impl AsArg<K>) -> bool {
+        meta::arg_into_ref!(key: K);
         let key = key.to_variant();
         self.as_inner().has(&key)
     }
@@ -283,11 +283,11 @@ impl<K: Element, V: Element> Dictionary<K, V> {
     ///
     /// _Godot equivalent: `find_key`_
     #[doc(alias = "find_key")]
-    pub fn find_key_by_value(&self, value: impl AsVArg<V>) -> Option<K>
+    pub fn find_key_by_value(&self, value: impl AsArg<V>) -> Option<K>
     where
         K: FromGodot,
     {
-        meta::varg_into_ref!(value: V);
+        meta::arg_into_ref!(value: V);
         let key = self.as_inner().find_key(&value.to_variant());
 
         if !key.is_nil() || self.as_inner().has(&key) {
@@ -308,14 +308,14 @@ impl<K: Element, V: Element> Dictionary<K, V> {
     /// If you are interested in the previous value, use [`insert()`][Self::insert] instead.
     ///
     /// For `VarDictionary` (or partially-typed dictionaries with `Variant` key/value), this method
-    /// accepts any `impl ToGodot` for the Variant positions, thanks to blanket `AsVArg<Variant>` impls.
+    /// accepts any `impl ToGodot` for the Variant positions, thanks to blanket `AsArg<Variant>` impls.
     ///
     /// _Godot equivalent: `dict[key] = value`_
-    pub fn set(&mut self, key: impl AsVArg<K>, value: impl AsVArg<V>) {
+    pub fn set(&mut self, key: impl AsArg<K>, value: impl AsArg<V>) {
         self.balanced_ensure_mutable();
 
-        meta::varg_into_ref!(key: K);
-        meta::varg_into_ref!(value: V);
+        meta::arg_into_ref!(key: K);
+        meta::arg_into_ref!(value: V);
 
         // SAFETY: K and V strongly typed.
         unsafe { self.set_variant(key.to_variant(), value.to_variant()) };
@@ -325,11 +325,11 @@ impl<K: Element, V: Element> Dictionary<K, V> {
     ///
     /// If you don't need the previous value, use [`set()`][Self::set] instead.
     #[must_use]
-    pub fn insert(&mut self, key: impl AsVArg<K>, value: impl AsVArg<V>) -> Option<V> {
+    pub fn insert(&mut self, key: impl AsArg<K>, value: impl AsArg<V>) -> Option<V> {
         self.balanced_ensure_mutable();
 
-        meta::varg_into_ref!(key: K);
-        meta::varg_into_ref!(value: V);
+        meta::arg_into_ref!(key: K);
+        meta::arg_into_ref!(value: V);
 
         let key_variant = key.to_variant();
         let old_value = self.take_old_value(&key_variant);
@@ -345,10 +345,10 @@ impl<K: Element, V: Element> Dictionary<K, V> {
     ///
     /// _Godot equivalent: `erase`_
     #[doc(alias = "erase")]
-    pub fn remove(&mut self, key: impl AsVArg<K>) -> Option<V> {
+    pub fn remove(&mut self, key: impl AsArg<K>) -> Option<V> {
         self.balanced_ensure_mutable();
 
-        meta::varg_into_ref!(key: K);
+        meta::arg_into_ref!(key: K);
 
         let key_variant = key.to_variant();
         let old_value = self.take_old_value(&key_variant);
@@ -708,8 +708,8 @@ impl<K: Element> Dictionary<K, Variant> {
     /// This method is deliberately absent from [`AnyDictionary`][super::AnyDictionary]. Because `Dictionary<K, V>` implements
     /// `Deref<Target = AnyDictionary>`, any method on `AnyDictionary` is inherited by _all_ dictionaries -- including typed ones
     /// like `Dictionary<K, i64>`, where a `Variant` return would be surprising.
-    pub fn get_or_nil(&self, key: impl AsVArg<K>) -> Variant {
-        meta::varg_into_ref!(key: K);
+    pub fn get_or_nil(&self, key: impl AsArg<K>) -> Variant {
+        meta::arg_into_ref!(key: K);
         let key_variant = key.to_variant();
         self.as_inner().get(&key_variant, &Variant::nil())
     }
@@ -836,7 +836,7 @@ impl<K: Element, V: Element> Clone for Dictionary<K, V> {
 impl<K: Element, V: Element> Extend<(K, V)> for Dictionary<K, V> {
     fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, iter: I) {
         for (k, v) in iter.into_iter() {
-            // Inline set logic to avoid generic owned_into_varg() (which can't resolve T::Pass).
+            // Inline set logic to avoid generic owned_into_arg() (which can't resolve T::Pass).
             self.balanced_ensure_mutable();
 
             // SAFETY: K and V strongly typed.
@@ -1344,7 +1344,7 @@ macro_rules! dict {
 ///
 /// For typed dictionaries, use [`dict!`][macro@crate::builtin::dict].
 /// For arrays, similar macros [`array!`][macro@crate::builtin::array] and [`varray!`][macro@crate::builtin::varray] exist.
-// TODO(v0.5): unify vdict!/dict! macro implementations; vdict! manually calls to_variant() while dict! uses AsVArg.
+// TODO(v0.5): unify vdict!/dict! macro implementations; vdict! manually calls to_variant() while dict! uses AsArg.
 #[macro_export]
 macro_rules! vdict {
     ($($key:tt: $value:expr_2021),* $(,)?) => {

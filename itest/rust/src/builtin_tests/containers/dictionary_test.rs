@@ -11,7 +11,7 @@ use godot::builtin::{
     AnyDictionary, Dictionary, GString, VarDictionary, Variant, VariantType, varray, vdict,
 };
 use godot::classes::RefCounted;
-use godot::meta::{ElementType, FromGodot, ToGodot};
+use godot::meta::{Element, ElementType, FromGodot, ToGodot};
 use godot::obj::NewGd;
 
 use crate::framework::{
@@ -890,6 +890,8 @@ func variant_script_dict() -> Dictionary[Variant, CustomScriptForDictionaries]:
 #[cfg(since_api = "4.4")]
 mod typed_dictionary_tests {
     use godot::builtin::{array, dict};
+    use godot::global::godot_str;
+    use godot::meta;
 
     use super::*;
 
@@ -973,5 +975,34 @@ mod typed_dictionary_tests {
         let deep = dict.duplicate_deep();
         assert_eq!(deep.key_element_type(), dict.key_element_type());
         assert_eq!(deep.value_element_type(), dict.value_element_type());
+    }
+
+    #[itest]
+    fn dictionary_typed_modify() {
+        let mut bool_dict: Dictionary<GString, bool> = dict! { "key1": true, "key2": false };
+
+        map_in_place(&mut bool_dict, &GString::from("key1"), |v| !*v);
+        assert!(!bool_dict.at("key1"));
+        assert!(!bool_dict.at("key2"));
+
+        let mut name_dict: Dictionary<i32, GString> = Dictionary::new();
+        name_dict.set(1, "hello");
+        name_dict.set(2, "world");
+
+        map_in_place(&mut name_dict, &1, |v| godot_str!("{v}_modified"));
+        assert_eq!(name_dict.at(1), "hello_modified");
+        assert_eq!(name_dict.at(2), "world");
+    }
+
+    /// Generic function operating on `Dictionary<K, V>` through the typed API.
+    pub fn map_in_place<K: Element, V: Element>(
+        dict: &mut Dictionary<K, V>,
+        key: &K,
+        value_map: impl FnOnce(&V) -> V,
+    ) {
+        if let Some(value) = dict.get(meta::ref_to_arg(key)) {
+            let new_value = value_map(&value);
+            dict.set(meta::ref_to_arg(key), meta::owned_into_arg(new_value));
+        }
     }
 }

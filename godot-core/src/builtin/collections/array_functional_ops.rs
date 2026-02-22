@@ -126,7 +126,7 @@ impl<'a, T: Element> ArrayFunctionalOps<'a, T> {
     /// # Example
     /// ```no_run
     /// # use godot::prelude::*;
-    /// let array = array![2, 4, 6];
+    /// let array = array![= 2, 4, 6];
     /// let all_even = array.functional_ops().all(&Callable::from_fn("is_even", |args| {
     ///     args[0].to::<i64>() % 2 == 0
     /// }));

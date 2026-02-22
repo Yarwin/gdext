@@ -6,9 +6,8 @@
  */
 
 use crate::builtin::{Callable, GString, NodePath, Signal, StringName, Variant};
-use crate::meta;
 use crate::meta::sealed::Sealed;
-use crate::meta::traits::{Element, GodotFfiVariant, GodotNullableFfi};
+use crate::meta::traits::{Element, GodotFfiVariant, GodotNullableFfi, PackedElement};
 use crate::meta::{CowArg, EngineToGodot, FfiArg, GodotType, ObjectArg, ToGodot};
 use crate::obj::{DynGd, Gd, GodotClass, Inherits};
 
@@ -499,18 +498,6 @@ macro_rules! arg_into_owned {
     };
 }
 
-/// Converts `impl AsVArg<T>` into a locally valid `&T`.
-///
-/// Analogous to [`arg_into_ref`][crate::arg_into_ref], but for [`AsVArg`][meta::AsVArg].
-#[macro_export]
-#[doc(hidden)]
-macro_rules! varg_into_ref {
-    ($arg_variable:ident: $T:ty) => {
-        let $arg_variable = $arg_variable.into_varg();
-        let $arg_variable: &$T = $arg_variable.cow_as_ref();
-    };
-}
-
 #[macro_export]
 macro_rules! declare_arg_method {
     ($ ($docs:tt)+ ) => {
@@ -680,7 +667,7 @@ impl ArgPassing for ByRef {
 /// Pass `Variant` arguments to Godot by reference.
 ///
 /// This is semantically identical to [`ByRef`], but exists as a separate type so that `Variant` has its own `Pass` type.
-/// This decoupling enables blanket `AsVArg` impls for all `ByRef` types without coherence conflicts at `T = Variant`.
+/// This decoupling enables blanket `AsArg<Variant>` impls for all `ByRef` types without coherence conflicts at `T = Variant`.
 ///
 /// See [`ToGodot::Pass`].
 pub enum ByVariant {}
@@ -829,68 +816,14 @@ pub type ToArg<'r, Via, Pass> = <Pass as ArgPassing>::Output<'r, Via>;
 struct PhantomAsArgDoctests;
 
 // ----------------------------------------------------------------------------------------------------------------------------------------------
-// AsVArg trait + internal DisjointVArg helper trait for blanket impls
+// AsArg<Variant> impls — replaces former AsVArg/DisjointVArg machinery
 
-/// Implicit conversions for arguments passed to collection APIs (e.g. `Dictionary`, `Array`).
-///
-/// `AsVArg<T>` is a superset of [`AsArg<T>`]: all types accepted by `AsArg<T>` are also accepted by `AsVArg<T>`.
-///
-/// Additionally, `AsVArg<Variant>` is implemented for most types that have a `ToGodot` implementation. This enables implicit conversion to
-/// `Variant` when passing to collection APIs, e.g. `dict.set("key", 42)` for `Dictionary<Variant, Variant>`.
-//
-// Design: a direct blanket `impl<S: AsArg<T>, T: ToGodot<Pass=ByRef>> AsVArg<T> for S` would conflict with the ByValue blanket impl, because the
-// compiler can't prove the intersection is empty. We solve this using a helper trait `DisjointVArg` parameterized by `Pass`, exploiting the fact
-// that impls differing by generic type parameters (rather than associated types) are always disjoint.
-// See also "helper trait" coherence workaround: https://github.com/rust-lang/rfcs/pull/1672#issuecomment-1405377983
-pub trait AsVArg<T: ToGodot>
+// Blanket: ByValue types -> Variant (i32, f64, bool, Vector2, Color, &str, String, user enums, etc.).
+impl<T> AsArg<Variant> for T
 where
-    Self: Sized,
+    T: ToGodot<Pass = ByValue>,
 {
-    #[doc(hidden)]
-    fn into_varg<'arg>(self) -> CowArg<'arg, T>
-    where
-        Self: 'arg;
-}
-
-// Bridge: single blanket connecting DisjointVArg to public AsVArg.
-impl<Arg, T> AsVArg<T> for Arg
-where
-    T: ToGodot,
-    Arg: DisjointVArg<T::Pass, T>,
-{
-    fn into_varg<'arg>(self) -> CowArg<'arg, T>
-    where
-        Self: 'arg,
-    {
-        DisjointVArg::__disjoint_to_cow(self)
-    }
-}
-
-/// Not part of the public API; used internally for [`AsVArg`] coherence dispatch.
-///
-/// Provides the following impls:
-/// * Blanket for all types supporting `ByRef`, `ByValue`, `ByObject` and `ByOption` pass strategies, directly forwarding to `AsArg<T>`.
-/// * Per-type for `&T` -> `Variant` for `ByVariant` pass strategy.
-///
-/// `DisjointVArg` moves [`ToGodot::Pass`] (an associated type) into a generic parameter, so the trait solver sees impls keyed by different
-/// `Pass` values as non-overlapping. This lets us write blanket forwarding impls (`AsArg<T>` -> `AsVArg<T>`) for most `By*` strategies without
-/// individual `AsVArg` impls for every type.
-///
-/// The one case it *doesn't* help with is non-variant `T` -> `Variant` conversions: since the bridge pins `Pass = T::Pass = ByVariant`,
-/// all source types compete in the same `DisjointVArg<ByVariant, Variant>` bucket. A blanket impl `for &A where A: ToGodot<Pass=ByRef>` would
-/// overlap with `for B where B: ToGodot<Pass=ByValue>` (compiler can't prove `&A` isn't such a `B`). So, those require per-type impls,
-/// macroified away.
-#[doc(hidden)]
-pub trait DisjointVArg<Pass, T> {
-    #[doc(hidden)]
-    fn __disjoint_to_cow<'arg>(self) -> CowArg<'arg, T>
-    where
-        Self: 'arg;
-}
-
-// ByValue: T -> Variant.
-impl<T: ToGodot<Pass = ByValue>> DisjointVArg<ByVariant, Variant> for T {
-    fn __disjoint_to_cow<'arg>(self) -> CowArg<'arg, Variant>
+    fn into_arg<'arg>(self) -> CowArg<'arg, Variant>
     where
         Self: 'arg,
     {
@@ -898,49 +831,11 @@ impl<T: ToGodot<Pass = ByValue>> DisjointVArg<ByVariant, Variant> for T {
     }
 }
 
-// ByVariant: &Variant -> Variant.
-impl DisjointVArg<ByVariant, Variant> for &Variant {
-    fn __disjoint_to_cow<'arg>(self) -> CowArg<'arg, Variant>
-    where
-        Self: 'arg,
-    {
-        CowArg::Borrowed(self)
-    }
-}
-
-// CowArg<Variant> helper (ByVariant, needed because CowArg<Variant> is not AsArg<Variant>).
-impl DisjointVArg<ByVariant, Variant> for CowArg<'_, Variant> {
-    fn __disjoint_to_cow<'arg>(self) -> CowArg<'arg, Variant>
-    where
-        Self: 'arg,
-    {
-        self
-    }
-}
-
-// Unified macro for DisjointVArg impls following a common scheme.
-macro_rules! impl_varg_variant {
-    // Blanket forward: any AsArg<T> automatically works as AsVArg<T> for a given pass strategy.
-    (forward [$($generic_params:tt)*] $Pass:ty $(where $($extra_bound:tt)*)?) => {
-        impl<$($generic_params)* S, T> DisjointVArg<$Pass, T> for S
-        where
-            S: AsArg<T>,
-            T: ToGodot<Pass = $Pass>,
-            $($($extra_bound)*)?
-        {
-            fn __disjoint_to_cow<'arg>(self) -> CowArg<'arg, T>
-            where
-                Self: 'arg,
-            {
-                AsArg::into_arg(self)
-            }
-        }
-    };
-
-    // Per-type &T -> Variant for ByRef types (coherence workaround, see above).
-    (ref_to_variant [$($generic_params:tt)*] $T:ty) => {
-        impl<$($generic_params)*> DisjointVArg<ByVariant, Variant> for &$T {
-            fn __disjoint_to_cow<'arg>(self) -> CowArg<'arg, Variant>
+// Macro for ByRef types -> Variant. Generic params go in `[]`, empty for non-generic types.
+macro_rules! impl_asarg_variant_for_ref {
+    ([$($gen:tt)*] $T:ty) => {
+        impl<$($gen)*> AsArg<Variant> for &$T {
+            fn into_arg<'arg>(self) -> CowArg<'arg, Variant>
             where
                 Self: 'arg,
             {
@@ -950,25 +845,15 @@ macro_rules! impl_varg_variant {
     };
 }
 
-// Blanket forwards for pass strategies except ByVariant, delegating to AsArg internally.
-impl_varg_variant!(forward [] ByRef); // &T.
-impl_varg_variant!(forward [] ByValue); // T.
-impl_varg_variant!(forward [] ByObject); // &Gd<T>, &DynGd<T, D>.
-impl_varg_variant!(forward [Via,] ByOption<Via>
-    where Via: GodotType,
-          for<'f> Via::ToFfi<'f>: GodotNullableFfi,
-);
-
-// ByRef: &T -> Variant conversions.
-impl_varg_variant!(ref_to_variant [] GString);
-impl_varg_variant!(ref_to_variant [] StringName);
-impl_varg_variant!(ref_to_variant [] NodePath);
-impl_varg_variant!(ref_to_variant [] Callable);
-impl_varg_variant!(ref_to_variant [] Signal);
-impl_varg_variant!(ref_to_variant [T: meta::Element] crate::builtin::Array<T>);
-impl_varg_variant!(ref_to_variant [K: meta::Element, V: meta::Element] crate::builtin::Dictionary<K, V>);
-impl_varg_variant!(ref_to_variant [T: meta::PackedElement] crate::builtin::PackedArray<T>);
-impl_varg_variant!(ref_to_variant [T: GodotClass] Gd<T>);
+impl_asarg_variant_for_ref!([] GString);
+impl_asarg_variant_for_ref!([] StringName);
+impl_asarg_variant_for_ref!([] NodePath);
+impl_asarg_variant_for_ref!([] Callable);
+impl_asarg_variant_for_ref!([] Signal);
+impl_asarg_variant_for_ref!([T: Element] crate::builtin::Array<T>);
+impl_asarg_variant_for_ref!([K: Element, V: Element] crate::builtin::Dictionary<K, V>);
+impl_asarg_variant_for_ref!([T: PackedElement] crate::builtin::PackedArray<T>);
+impl_asarg_variant_for_ref!([T: GodotClass] Gd<T>);
 
 // ----------------------------------------------------------------------------------------------------------------------------------------------
 // DirectElement trait for array![] macro
@@ -992,7 +877,7 @@ impl<T> DirectElement<T> for &T where T: Element + ToGodot<Pass = ByRef> {}
 // which goes against the idea of implicit upcasts/option-casts/dyn-casts.
 // impl<T: GodotClass> DirectElement<Gd<T>> for &Gd<T> {}
 
-// String coercions: &str / &String → GString only.
+// String coercions: &str / &String -> GString only.
 //
 // Unlike impl_asarg_string!, we do NOT add impls for StringName/NodePath, to avoid ambiguity.
 // array![= "hello"] would otherwise be ambiguous between Array<GString>, Array<StringName>, Array<NodePath>.

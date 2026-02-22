@@ -16,9 +16,7 @@ use super::dictionary::{Iter, Keys};
 use crate::builtin::*;
 use crate::meta;
 use crate::meta::error::ConvertError;
-use crate::meta::{
-    AsVArg, Element, ElementType, GodotConvert, GodotFfiVariant, GodotType, ToGodot,
-};
+use crate::meta::{AsArg, Element, ElementType, GodotConvert, GodotFfiVariant, GodotType, ToGodot};
 
 /// Covariant `Dictionary` that can be typed or untyped.
 ///
@@ -83,14 +81,14 @@ impl AnyDictionary {
     ///
     /// # Panics
     /// If there is no value for the given key. Note that this is distinct from a `NIL` value, which is returned as `Variant::nil()`.
-    pub fn at(&self, key: impl AsVArg<Variant>) -> Variant {
+    pub fn at(&self, key: impl AsArg<Variant>) -> Variant {
         self.dict.at(key)
     }
 
     /// Returns the value for the given key, or `None`.
     ///
     /// Note that `NIL` values are returned as `Some(Variant::nil())`, while absent values are returned as `None`.
-    pub fn get(&self, key: impl AsVArg<Variant>) -> Option<Variant> {
+    pub fn get(&self, key: impl AsArg<Variant>) -> Option<Variant> {
         self.dict.get(key)
     }
 
@@ -98,7 +96,7 @@ impl AnyDictionary {
     ///
     /// _Godot equivalent: `has`_
     #[doc(alias = "has")]
-    pub fn contains_key(&self, key: impl AsVArg<Variant>) -> bool {
+    pub fn contains_key(&self, key: impl AsArg<Variant>) -> bool {
         self.dict.contains_key(key)
     }
 
@@ -140,7 +138,7 @@ impl AnyDictionary {
     ///
     /// _Godot equivalent: `find_key`_
     #[doc(alias = "find_key")]
-    pub fn find_key_by_value(&self, value: impl AsVArg<Variant>) -> Option<Variant> {
+    pub fn find_key_by_value(&self, value: impl AsArg<Variant>) -> Option<Variant> {
         self.dict.find_key_by_value(value)
     }
 
@@ -155,14 +153,14 @@ impl AnyDictionary {
     ///
     /// _Godot equivalent: `erase`_
     #[doc(alias = "erase")]
-    pub fn remove(&mut self, key: impl AsVArg<Variant>) -> Option<Variant> {
+    pub fn remove(&mut self, key: impl AsArg<Variant>) -> Option<Variant> {
         self.dict.remove(key)
     }
 
     /// Alias for [`remove()`][Self::remove].
     ///
     /// _Godot equivalent: `erase`_
-    pub fn erase(&mut self, key: impl AsVArg<Variant>) -> Option<Variant> {
+    pub fn erase(&mut self, key: impl AsArg<Variant>) -> Option<Variant> {
         self.remove(key)
     }
 

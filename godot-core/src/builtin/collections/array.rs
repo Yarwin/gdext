@@ -78,7 +78,7 @@ use crate::registry::property::{BuiltinExport, Export, Var};
 /// ```no_run
 /// # use godot::prelude::*;
 /// // Create typed Array<i64> and add values.
-/// let mut array = Array::new();
+/// let mut array = Array::<i64>::new();
 /// array.push(10);
 /// array.push(20);
 /// array.push(30);
