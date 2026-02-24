@@ -84,7 +84,7 @@ use crate::registry::property::{BuiltinExport, Export, Var};
 /// array.push(30);
 ///
 /// // Or create the same array in a single expression.
-/// let array = array![10, 20, 30];
+/// let array = array![= 10, 20, 30];
 ///
 /// // Access elements.
 /// let value: i64 = array.at(0); // 10
@@ -132,7 +132,7 @@ use crate::registry::property::{BuiltinExport, Export, Var};
 /// ```no_run
 /// # use godot::builtin::array;
 /// # use godot::meta::wrapped;
-/// let arr = array![0, 1, 2, 3, 4, 5];
+/// let arr = array![= 0, 1, 2, 3, 4, 5];
 ///
 /// // The values of `begin` (inclusive) and `end` (exclusive) will be clamped to the array size.
 /// let clamped_array = arr.subarray_deep(999..99999, None);
@@ -340,6 +340,12 @@ impl<T: Element> Array<T> {
         // SAFETY: The array has type `T` and we're writing a value of type `T` to it.
         let mut inner = unsafe { self.as_inner_mut() };
         inner.push_back(&value.to_variant());
+    }
+
+    /// Internal helper for the `array!` macro; uses [`DirectElement`][meta::DirectElement] for unambiguous type inference.
+    #[doc(hidden)]
+    pub fn __macro_push_direct<E: meta::DirectElement<T>>(&mut self, value: E) {
+        self.push(value)
     }
 
     /// Adds an element at the beginning of the array, in O(n).
@@ -1175,7 +1181,7 @@ impl<T: Element + fmt::Display> fmt::Display for Array<T> {
     /// # Example
     /// ```no_run
     /// # use godot::prelude::*;
-    /// let a = array![1,2,3,4];
+    /// let a = array![= 1,2,3,4];
     /// assert_eq!(format!("{a}"), "[1, 2, 3, 4]");
     /// ```
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1529,38 +1535,51 @@ impl<T: Element> PartialOrd for Array<T> {
 
 /// Constructs [`Array`] literals, similar to Rust's standard `vec!` macro.
 ///
-///
 /// # Type inference
-/// To create an `Array<E>`, the types of the provided values `T` must implement [`AsArg<E>`].
+/// By default, `array!` uses [`AsArg`][crate::meta::AsArg] to push elements. This works when the array's element type `T` is already
+/// determined from context -- a type annotation, function parameter, etc. This supports all element types including `Gd<T>` and `Variant`.
 ///
-/// For values that can directly be represented in Godot (implementing [`GodotType`]), types can usually be inferred.
-/// You need to respect by-value vs. by-reference semantics as per [`ToGodot::Pass`].
+/// The `= ` prefix (`array![= ...]`) switches to [`DirectElement`][crate::meta::DirectElement], enabling unambiguous type inference
+/// from the elements themselves -- no external type context needed. Covers only common types and provides only conversions that are opinionated
+/// but unambiguous. For example, `array![= "hello"]` will infer as `Array<GString>`, never `Array<StringName>` or `Array<Variant>`.
 ///
 /// # Examples
 /// ```no_run
 /// # use godot::prelude::*;
-/// // Inferred type - i32: AsArg<i32>
-/// let ints = array![3, 1, 4];
+/// // Type annotation provides context; no prefix needed.
+/// // Multiple assignments possible.
+/// let ints: Array<i8>      = array![3, 1, 4];
+/// let ints: Array<i64>     = array![3, 1, 4];
+/// let ints: Array<Variant> = array![3, 1, 4];
 ///
-/// // Inferred type - &GString: AsArg<GString>
-/// let strs = array![&GString::from("godot-rust")];
+/// let strs: Array<GString>    = array!["a", "b"];
+/// let strs: Array<StringName> = array!["a", "b"];
+/// let strs: Array<Variant>    = array!["a", "b"];
 ///
-/// // Explicitly specified type - &str: AsArg<GString>
-/// let strs: Array<GString> = array!["Godot", "Rust"];
+/// // No type context, so use `=` for unambiguous inference.
+/// let ints = array![= 3, 1, 4];  // Array<i32>.
+/// let strs = array![= "a", "b"]; // Array<GString>.
 /// ```
 ///
 /// # See also
 /// To create an `Array` of variants, see the [`varray!`] macro.
 ///
-/// For dictionaries, a similar macro [`vdict!`] exists.
+/// For dictionaries, a similar macro [`dict!`] exists.
 #[macro_export]
 macro_rules! array {
+    // Default: old `AsArg` semantics (needed for `Gd`, `Variant`, or explicit disambiguation).
     ($($elements:expr_2021),* $(,)?) => {
         {
             let mut array = $crate::builtin::Array::default();
-            $(
-                array.push($elements);
-            )*
+            $(array.push($elements);)*
+            array
+        }
+    };
+    // `=` prefix: `DirectElement` (unambiguous type inference; covers `i32`, `&str` → `GString`, `&GString`, ...).
+    (= $($elements:expr_2021),* $(,)?) => {
+        {
+            let mut array = $crate::builtin::Array::default();
+            $(array.__macro_push_direct($elements);)*
             array
         }
     };

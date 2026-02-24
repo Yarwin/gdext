@@ -8,7 +8,7 @@
 use crate::builtin::{Callable, GString, NodePath, Signal, StringName, Variant};
 use crate::meta;
 use crate::meta::sealed::Sealed;
-use crate::meta::traits::{GodotFfiVariant, GodotNullableFfi};
+use crate::meta::traits::{Element, GodotFfiVariant, GodotNullableFfi};
 use crate::meta::{CowArg, EngineToGodot, FfiArg, GodotType, ObjectArg, ToGodot};
 use crate::obj::{DynGd, Gd, GodotClass, Inherits};
 
@@ -969,3 +969,34 @@ impl_varg_variant!(ref_to_variant [T: meta::Element] crate::builtin::Array<T>);
 impl_varg_variant!(ref_to_variant [K: meta::Element, V: meta::Element] crate::builtin::Dictionary<K, V>);
 impl_varg_variant!(ref_to_variant [T: meta::PackedElement] crate::builtin::PackedArray<T>);
 impl_varg_variant!(ref_to_variant [T: GodotClass] Gd<T>);
+
+// ----------------------------------------------------------------------------------------------------------------------------------------------
+// DirectElement trait for array![] macro
+
+/// Marker trait for types directly usable in the [`array!`][crate::array] macro.
+///
+/// More restrictive than [`AsArg<T>`] — avoids ambiguity once `AsArg<Variant>` impls are added.
+/// Implemented for:
+/// - `T` when `T: Element + ToGodot<Pass = ByValue>` (e.g. `i32`, `bool`, `Color`).
+/// - `&T` when `T: Element + ToGodot<Pass = ByRef>` (e.g. `&GString`, `&Array<T>`).
+/// - `&str`, `&String` for `GString` (only; not `StringName`/`NodePath` to avoid ambiguity).
+pub trait DirectElement<T: Element>: AsArg<T> {}
+
+// ByValue: T directly passes as element (i32, bool, Vector2, ...).
+impl<T> DirectElement<T> for T where T: Element + ToGodot<Pass = ByValue> {}
+
+// ByRef: &T passes as element (GString, Array, Dictionary, ...).
+impl<T> DirectElement<T> for &T where T: Element + ToGodot<Pass = ByRef> {}
+
+// Potentially allow this? However, it encourages manual case differentiation when working with objects,
+// which goes against the idea of implicit upcasts/option-casts/dyn-casts.
+// impl<T: GodotClass> DirectElement<Gd<T>> for &Gd<T> {}
+
+// String coercions: &str / &String → GString only.
+//
+// Unlike impl_asarg_string!, we do NOT add impls for StringName/NodePath, to avoid ambiguity.
+// array![= "hello"] would otherwise be ambiguous between Array<GString>, Array<StringName>, Array<NodePath>.
+// Users who need Array<StringName> from literals can use array![StringName::from("hi")] or
+// provide a type annotation: let arr: Array<StringName> = array!["hi"].
+impl DirectElement<GString> for &str {}
+impl DirectElement<GString> for &String {}

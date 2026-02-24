@@ -73,7 +73,7 @@ fn async_task_array() -> TaskHandle {
 
     object.emit_signal(
         "custom_signal_array",
-        vslice![array![1, 2, 3], ref_counted_arg],
+        vslice![array![= 1, 2, 3], ref_counted_arg],
     );
 
     task_handle

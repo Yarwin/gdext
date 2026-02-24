@@ -21,7 +21,7 @@ mod ref_arg;
 pub use as_arg::DisjointVArg;
 pub(crate) use as_arg::NullArg;
 pub use as_arg::{
-    ArgPassing, AsArg, AsVArg, ByObject, ByOption, ByRef, ByValue, ByVariant, ToArg,
+    ArgPassing, AsArg, AsVArg, ByObject, ByOption, ByRef, ByValue, ByVariant, DirectElement, ToArg,
     owned_into_arg, ref_to_arg,
 };
 #[cfg(not(feature = "trace"))]

@@ -945,8 +945,7 @@ mod typed_dictionary_tests {
 
     #[itest]
     fn dictionary_typed_kv_array() {
-        // Key type needs to be specified for now, due to GString/StringName/NodePath ambiguity.
-        let dict: Dictionary<GString, _> = dict! {
+        let dict: Dictionary<GString, i32> = dict! {
             "key1": 10,
             "key2": 20,
         };
