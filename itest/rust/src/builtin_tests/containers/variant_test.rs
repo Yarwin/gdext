@@ -136,13 +136,13 @@ fn variant_relaxed_conversions() {
     let packed_strings = PackedStringArray::from(["a".into(), "bb".into()]);
     let strings: Array<GString> = array!["a", "bb"];
 
-    convert_relaxed_to(array![1, 2, 3], packed_ints.clone());
+    convert_relaxed_to(array![= 1, 2, 3], packed_ints.clone());
     convert_relaxed_to(varray![1, 2, 3], packed_ints.clone());
     convert_relaxed_to(strings.clone(), packed_strings.clone());
     convert_relaxed_to(varray!["a", "bb"], packed_strings.clone());
 
     // Packed*Array -> Array
-    convert_relaxed_to(packed_ints.clone(), array![1, 2, 3]);
+    convert_relaxed_to(packed_ints.clone(), array![= 1, 2, 3]);
     convert_relaxed_to(packed_ints, varray![1, 2, 3]);
     convert_relaxed_to(packed_strings.clone(), strings);
     convert_relaxed_to(packed_strings, varray!["a", "bb"]);

@@ -154,7 +154,7 @@ fn callable_static() {
     let result = callable.callv(&varray![
         10,
         "hello",
-        &array![&NodePath::from("my/node/path")],
+        &array![= &NodePath::from("my/node/path")],
         RefCounted::new_gd()
     ]);
 
@@ -177,7 +177,7 @@ fn callable_static_bind() {
     // Last 3 of 4 arguments. Within Godot, bound arguments are used in-order AFTER call arguments.
     let bindv = callable.bindv(&varray![
         "two",
-        array![&NodePath::from("three/four")],
+        array![= &NodePath::from("three/four")],
         &RefCounted::new_gd(),
     ]);
     assert!(bindv.is_valid());
