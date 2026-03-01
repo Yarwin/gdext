@@ -241,6 +241,10 @@ unsafe fn gdext_on_level_init(level: InitLevel, _userdata: &InitUserData) {
 
 /// Tasks needed to be done by gdext internally upon unloading an initialization level. Called after user code.
 fn gdext_on_level_deinit(level: InitLevel) {
+    if level == InitLevel::Editor {
+        prune_stored_signal_connections();
+    }
+
     crate::registry::class::unregister_classes(level);
 
     if level == InitLevel::Core {
@@ -493,6 +497,7 @@ pub enum EditorRunBehavior {
 
 pub use sys::InitLevel;
 
+use crate::registry::signal::prune_stored_signal_connections;
 // ----------------------------------------------------------------------------------------------------------------------------------------------
 
 /// # Safety
