@@ -10,7 +10,7 @@ use sys::interface_fn;
 
 use crate::builtin::{StringName, Variant};
 use crate::global::MethodFlags;
-use crate::meta::{ClassId, GodotConvert, GodotType, ParamTuple, PropertyInfo, Signature};
+use crate::meta::{ClassId, GodotConvert, ParamTuple, PropertyInfo, Signature};
 use crate::obj::GodotClass;
 
 /// Info relating to an argument or return type in a method.
@@ -63,7 +63,7 @@ impl ClassMethodInfo {
         param_names: &[&str],
         default_arguments: Vec<Variant>,
     ) -> Self {
-        let return_value = Ret::Via::return_info();
+        let return_value = Ret::return_info();
         let arguments = Signature::<Params, Ret>::param_names(param_names);
 
         assert!(

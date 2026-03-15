@@ -7,10 +7,12 @@
 
 mod impls;
 
+use godot_ffi::GodotFfi;
+
 use crate::builtin::Variant;
 use crate::meta::error::ConvertError;
 use crate::meta::traits::GodotFfiVariant;
-use crate::meta::{ArgPassing, GodotType, ToArg};
+use crate::meta::{ArgPassing, GodotType, MethodParamOrReturnInfo, ToArg};
 use crate::registry::property::GodotShape;
 
 /// Indicates that a type can be passed to/from Godot, either directly or through an intermediate "via" type.
@@ -42,6 +44,27 @@ pub trait GodotConvert {
     ///
     /// godot-rust derives property hints, class names, usage flags, and element metadata from this.
     fn godot_shape() -> GodotShape;
+
+    /// Additional parameter metadata that can be used by godot and other gdextensions smth smth.
+    fn param_metadata() -> crate::sys::GDExtensionClassMethodArgumentMetadata {
+        <Self::Via as GodotType>::Ffi::default_param_metadata()
+    }
+
+    #[doc(hidden)]
+    fn argument_info(property_name: &str) -> MethodParamOrReturnInfo {
+        MethodParamOrReturnInfo::new(
+            Self::Via::property_info(property_name),
+            Self::param_metadata(),
+        )
+    }
+
+    #[doc(hidden)]
+    fn return_info() -> Option<MethodParamOrReturnInfo> {
+        Some(MethodParamOrReturnInfo::new(
+            Self::Via::property_info(""),
+            Self::param_metadata(),
+        ))
+    }
 }
 
 /// Defines the canonical conversion to Godot for a type.

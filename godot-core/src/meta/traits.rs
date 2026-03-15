@@ -11,7 +11,6 @@ use crate::builtin;
 use crate::builtin::{Variant, VariantType};
 use crate::meta::error::ConvertError;
 use crate::meta::{FromGodot, GodotConvert, PropertyInfo, ToGodot, sealed};
-use crate::registry::method::MethodParamOrReturnInfo;
 
 // Re-export sys traits in this module, so all are in one place.
 #[rustfmt::skip] // Do not reorder.
@@ -75,10 +74,10 @@ pub trait GodotType: GodotConvert<Via = Self> + sealed::Sealed + Sized + 'static
         Self::try_from_ffi(ffi).expect("Failed conversion from FFI representation to Rust type")
     }
 
-    #[doc(hidden)]
-    fn param_metadata() -> sys::GDExtensionClassMethodArgumentMetadata {
-        Self::Ffi::default_param_metadata()
-    }
+    // #[doc(hidden)]
+    // fn param_metadata() -> sys::GDExtensionClassMethodArgumentMetadata {
+    //     Self::Ffi::default_param_metadata()
+    // }
 
     #[doc(hidden)]
     fn property_info(property_name: &str) -> PropertyInfo {
@@ -86,18 +85,21 @@ pub trait GodotType: GodotConvert<Via = Self> + sealed::Sealed + Sized + 'static
         Self::godot_shape().to_method_signature_property(property_name)
     }
 
-    #[doc(hidden)]
-    fn argument_info(property_name: &str) -> MethodParamOrReturnInfo {
-        MethodParamOrReturnInfo::new(Self::property_info(property_name), Self::param_metadata())
-    }
+    // #[doc(hidden)]
+    // fn argument_info(property_name: &str) -> MethodParamOrReturnInfo {
+    //     MethodParamOrReturnInfo::new(
+    //         Self::property_info(property_name),
+    //         <Self as GodotType>::param_metadata(),
+    //     )
+    // }
 
-    #[doc(hidden)]
-    fn return_info() -> Option<MethodParamOrReturnInfo> {
-        Some(MethodParamOrReturnInfo::new(
-            Self::property_info(""),
-            Self::param_metadata(),
-        ))
-    }
+    // #[doc(hidden)]
+    // fn return_info() -> Option<MethodParamOrReturnInfo> {
+    //     Some(MethodParamOrReturnInfo::new(
+    //         Self::property_info(""),
+    //         <Self as GodotType>::param_metadata(),
+    //     ))
+    // }
 
     /// Special-casing for `FromVariant` conversions higher up: true if the variant can be interpreted as `Option<Self>::None`.
     ///

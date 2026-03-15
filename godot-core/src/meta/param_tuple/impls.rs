@@ -39,7 +39,7 @@ macro_rules! unsafe_impl_param_tuple {
             ) -> Option<crate::registry::method::MethodParamOrReturnInfo> {
                 match index {
                     $(
-                        $n => Some($P::Via::argument_info(param_name)),
+                        $n => Some($P::argument_info(param_name)),
                     )*
                     _ => None,
                 }

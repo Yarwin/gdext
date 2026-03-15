@@ -11,7 +11,6 @@ use crate::builtin::{Array, Variant};
 use crate::meta;
 use crate::meta::error::{ConvertError, ErrorKind, FromFfiError};
 use crate::meta::{Element, FromGodot, GodotConvert, GodotNullableFfi, GodotType, ToGodot};
-use crate::registry::method::MethodParamOrReturnInfo;
 use crate::registry::property::GodotShape;
 
 // The following ToGodot/FromGodot/Convert impls are auto-generated for each engine type, co-located with their definitions:
@@ -55,18 +54,6 @@ where
         Some(GodotType::from_ffi(ffi))
     }
 
-    fn param_metadata() -> sys::GDExtensionClassMethodArgumentMetadata {
-        T::param_metadata()
-    }
-
-    fn argument_info(property_name: &str) -> MethodParamOrReturnInfo {
-        T::argument_info(property_name)
-    }
-
-    fn return_info() -> Option<MethodParamOrReturnInfo> {
-        T::return_info()
-    }
-
     // Only relevant for object types T.
     fn as_object_arg(&self) -> meta::ObjectArg<'_> {
         match self {
@@ -85,6 +72,10 @@ where
 
     fn godot_shape() -> GodotShape {
         T::godot_shape()
+    }
+
+    fn param_metadata() -> sys::GDExtensionClassMethodArgumentMetadata {
+        T::param_metadata()
     }
 }
 
@@ -188,7 +179,6 @@ macro_rules! impl_godot_scalar {
                 })
             }
 
-            impl_godot_scalar!(@shared_fns; $Via, $param_metadata);
         }
 
         // For integer types, we can validate the conversion.
@@ -198,7 +188,7 @@ macro_rules! impl_godot_scalar {
             }
         }
 
-        impl_godot_scalar!(@shared_traits; $T);
+        impl_godot_scalar!(@shared_traits; $T, $param_metadata);
     };
 
     ($T:ty as $Via:ty, $param_metadata:expr_2021; lossy) => {
@@ -218,28 +208,29 @@ macro_rules! impl_godot_scalar {
                 Ok(ffi as $T)
             }
 
-            impl_godot_scalar!(@shared_fns; $Via, $param_metadata);
         }
 
         // For f32, conversion from f64 is lossy but will always succeed. Thus no debug validation needed.
         impl Element for $T {}
 
-        impl_godot_scalar!(@shared_traits; $T);
+        impl_godot_scalar!(@shared_traits; $T, $param_metadata);
     };
 
-    (@shared_fns; $Via:ty, $param_metadata:expr_2021) => {
+    (@shared_fns; $param_metadata:expr_2021) => {
         fn param_metadata() -> sys::GDExtensionClassMethodArgumentMetadata {
             $param_metadata
         }
     };
 
-    (@shared_traits; $T:ty) => {
+    (@shared_traits; $T:ty, $param_metadata:expr_2021) => {
         impl GodotConvert for $T {
             type Via = $T;
 
             fn godot_shape() -> GodotShape {
                 GodotShape::of_builtin::<$T>()
             }
+
+            impl_godot_scalar!(@shared_fns; $param_metadata);
         }
 
         impl ToGodot for $T {
@@ -319,8 +310,6 @@ impl GodotType for u64 {
     fn try_from_ffi(ffi: Self::Ffi) -> Result<Self, ConvertError> {
         Ok(ffi as u64)
     }
-
-    impl_godot_scalar!(@shared_fns; i64, sys::GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT64);
 }
 
 impl GodotConvert for u64 {
@@ -329,6 +318,8 @@ impl GodotConvert for u64 {
     fn godot_shape() -> GodotShape {
         GodotShape::of_builtin::<u64>()
     }
+
+    impl_godot_scalar!(@shared_fns; sys::GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT64);
 }
 
 // u64 implements internal-only conversion traits for use in engine APIs and virtual methods.
