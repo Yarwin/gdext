@@ -33,6 +33,14 @@ use crate::{GodotVersion, StopWatch, env_var_or_deprecated};
 use gdextension_api::version_4_6::load_gdextension_header_h as load_latest_gdextension_headers;
 // ]]
 
+#[rustfmt::skip]
+// [version-sync] [[
+//  [include] current.minor
+//  [line] static GODOT_VERSION_STRING: &str = "$dotVersion";\nstatic GODOT_VERSION_TUPLE: (u8, u8, u8) = $triple;
+static GODOT_VERSION_STRING: &str = "4.6";
+static GODOT_VERSION_TUPLE: (u8, u8, u8) = (4, 6, 0);
+// ]]
+
 /// A minimal version of deserialized JsonExtensionApi that includes only the header.
 #[derive(DeJson)]
 struct JsonExtensionApi {
@@ -89,13 +97,14 @@ pub fn load_custom_gdextension_json() -> String {
 }
 
 pub(crate) fn read_godot_version() -> GodotVersion {
-    let extension_api: JsonExtensionApi = DeJson::deserialize_json(&load_custom_gdextension_json())
-        .expect("failed to deserialize JSON");
-    let version = extension_api.header.into_godot_version();
-
-    validate_godot_version(&version);
-
-    version
+    GodotVersion {
+        full_string: GODOT_VERSION_STRING.to_string(),
+        major: GODOT_VERSION_TUPLE.0,
+        minor: GODOT_VERSION_TUPLE.1,
+        patch: GODOT_VERSION_TUPLE.2,
+        status: "stable".to_string(),
+        custom_rev: None,
+    }
 }
 
 pub(crate) fn write_gdextension_headers(
