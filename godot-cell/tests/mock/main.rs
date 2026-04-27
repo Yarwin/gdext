@@ -9,6 +9,7 @@
 //!
 //! Used so we can run miri on this, which we cannot when we are running in itest against Godot.
 
+mod atomic;
 mod blocking;
 mod panicking;
 
@@ -71,6 +72,18 @@ macro_rules! setup_mock {
             let ptr = instance.0.cast::<InstanceStorage<T>>();
 
             unsafe { &*ptr }
+        }
+
+        unsafe fn with_obj<T, R>(
+            key: usize,
+            mut f: impl FnMut(&mut T) -> R,
+        ) -> Result<R, Box<dyn Error>> {
+            // SAFETY: Caller must ensure `key` is a valid instance ID.
+            let storage = unsafe { get_instance::<T>(key) };
+
+            let mut instance = storage.cell.borrow_mut()?;
+
+            Ok(f(&mut *instance))
         }
 
         unsafe fn call_immut_method<T>(key: usize, method: fn(&T)) -> Result<(), Box<dyn Error>> {

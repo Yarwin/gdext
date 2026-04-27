@@ -29,11 +29,19 @@
 //! (that is, `b` was created from `a` somehow such as by casting `a` to a raw pointer then to a reference
 //! `b`), then `a` won't get invalidated by accesses to `b`.
 
+mod atomic_borrow_state;
+mod atomic_cell;
+mod atomic_guards;
 mod blocking_cell;
 mod blocking_guards;
 mod borrow_state;
 mod cell;
 mod guards;
+
+pub mod atomic {
+    pub use crate::atomic_cell::AtomicGdCell;
+    pub use crate::atomic_guards::{InaccessibleGuard, MutGuard, RefGuard};
+}
 
 pub mod panicking {
     pub use crate::cell::GdCell;
